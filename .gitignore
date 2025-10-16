@@ -12,6 +12,11 @@ adni_results/params/**
 adni_results/images/**
 adni_results/corrupted/**
 adni_results/split/**
+!adni_results/split/
+!adni_results/split/test/
+!adni_results/split/test/**
+!split/split-test-False-None/**
+!split/split-test-True/**
 
 # --- checkpoints: ignore all, then keep a few ---
 adni_results/ckps/**
