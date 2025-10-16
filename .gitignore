@@ -4,6 +4,11 @@ adni_results/loss/**
 adni_results/heatmaps_captum/**
 adni_results/overlay/**
 adni_results/params/**
+!adni_results/heatmaps/
+!adni_results/heatmaps/gr1_100_100_cam_cam-fnt10-uncor.npy
+!adni_results/heatmaps/gr2_100_100_cam_cam-fnt10-uncor.npy
+!adni_results/heatmaps/gr1_100_100_cam_cam-fnt7-cor.npy
+!adni_results/heatmaps/gr2_100_100_cam_cam-fnt7-cor.npy
 adni_results/images/**
 adni_results/corrupted/**
 adni_results/split/**
