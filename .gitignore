@@ -1,0 +1,25 @@
+# --- results: ignore heavy subfolders ---
+adni_results/logs/**
+adni_results/loss/**
+adni_results/heatmaps_captum/**
+adni_results/overlay/**
+adni_results/params/**
+adni_results/images/**
+adni_results/corrupted/**
+adni_results/split/**
+
+# --- checkpoints: ignore all, then keep a few ---
+adni_results/ckps/**
+
+# caches / bytecode
+__pycache__/
+
+
+
+
+
+
+
+
+
+
