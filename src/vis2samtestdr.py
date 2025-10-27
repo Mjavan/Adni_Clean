@@ -1,14 +1,6 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.models import resnet50, ResNet50_Weights
+import copy
+from typing import Any
 
-import os
-import numpy as np
-import pandas as pd
-from pathlib import Path
 import random
 import argparse
 
@@ -23,14 +15,24 @@ from model import *
 from embeddingtest import *
 from data import *
 from utils import *
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from src.eval_utils import insert_grey_circle, segment_image_with_circle_superpixel
 
 
 class TestStatisticBackprop:
     def __init__(self, args):
         self.args = args
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self._setup_experiment()
         self._load_checkpoint()
+        self._setup_experiment()
+        self.heatmap_path = {}
+        self.heatmap_path["gr1"] =  os.path.join(
+            self.heatmap_dir, f"gr1_{len(self.group_1)}_{self.m1}_{self.args.expl}_{self.args.exp}.npy"
+        )
+        self.heatmap_path["gr2"] = os.path.join(
+            self.heatmap_dir, f"gr2_{len(self.group_2)}_{self.m2}_{self.args.expl}_{self.args.exp}.npy"
+        )
 
     def _setup_experiment(self):
         """Set random seeds, directories, and test loader."""
@@ -92,33 +94,49 @@ class TestStatisticBackprop:
             out_path = test_dir / "test_split.npz"
             with np.load(out_path) as f:
                 print(f.files)  # -> ['test0', 'test1']
-                self.group0 = f["test0"]
-                self.group1 = f["test1"]
-            self.group0_np = self.group0[: self.args.n]
-            self.group1_np = self.group1[: self.args.m]
+                self.group_1 = f["test0"]
+                self.group_2 = f["test1"]
+            self.group_1_np = self.group_1[: self.args.n]
+            self.group_2_np = self.group_2[: self.args.m]
+
+        elif self.args.dst == "faithfulness_eval":
+            print(f"Using test set for getting embeddings")
+            # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
+            root_dir = "."
+            #test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
+            test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
+            out_path = test_dir / "test_split.npz"
+            with np.load(out_path) as f:
+                print(f.files)  # -> ['test0', 'test1']
+                self.group_1 = f["test0"]
+                self.group_2 = copy.deepcopy(f["test0"])
+            self.group_1_np = self.group_1[: self.args.n]
+            self.group_2_np = self.group_2[: self.args.m].copy()
+
+            self.group_2_np = self._add_grey_circle_artifact_all_samples(self.group_2_np)
 
         elif self.args.dst == "full":
             dataset = AdniMRIDataset2D(annotations_file=self.args.annot_path, img_dir=self.args.img_path)
-            self.group0, self.group1 = [], []
+            self.group_1, self.group_2 = [], []
             for img, label in dataset:
                 if label == 0:
-                    self.group0.append(img)
+                    self.group_1.append(img)
                 else:
-                    self.group1.append(img)
+                    self.group_2.append(img)
             # concatenate list of arrays to a single numpy array
-            self.group0 = np.concatenate(self.group0, axis=0)
-            self.group1 = np.concatenate(self.group1, axis=0)
+            self.group_1 = np.concatenate(self.group_1, axis=0)
+            self.group_2 = np.concatenate(self.group_2, axis=0)
             # save two gropus as numpy arrays
             if self.args.sav_gr_np:
-                full_path1 = os.path.join(self.img_dir, f"gr0_{len(self.group0)}.npy")
-                full_path2 = os.path.join(self.img_dir, f"gr1_{len(self.group1)}.npy")
-                np.save(full_path1, self.group0)
-                np.save(full_path2, self.group1)
-                print(f"group0 shape:{self.group0.shape}, group1 shape:{self.group1.shape}")
-                print(f"group0 and group1 numpy arrays were saved!")
+                full_path1 = os.path.join(self.img_dir, f"gr0_{len(self.group_1)}.npy")
+                full_path2 = os.path.join(self.img_dir, f"gr1_{len(self.group_2)}.npy")
+                np.save(full_path1, self.group_1)
+                np.save(full_path2, self.group_2)
+                print(f"group_1 shape:{self.group_1.shape}, group_2 shape:{self.group_2.shape}")
+                print(f"group_1 and group_2 numpy arrays were saved!")
             # choose n,m samples from ecah group
-            self.group0_np = self.group0[: self.args.n]
-            self.group1_np = self.group1[: self.args.m]
+            self.group_1_np = self.group_1[: self.args.n]
+            self.group_2_np = self.group_2[: self.args.m]
 
         elif self.args.dst == "corr":
 
@@ -130,10 +148,10 @@ class TestStatisticBackprop:
                 out_path = test_dir / "test_split.npz"
                 with np.load(out_path) as f:
                     print(f.files)  # -> ['test0', 'test1']
-                    self.group0 = f["test0"]
-                    self.group1 = f["test1"]
-                self.group0_np = self.group0[: self.args.n]
-                self.group1_np = self.group1[: self.args.m]
+                    self.group_1 = f["test0"]
+                    self.group_2 = f["test1"]
+                self.group_1_np = self.group_1[: self.args.n]
+                self.group_2_np = self.group_2[: self.args.m]
 
             if self.args.deg == "zer-test":
                 print(f"Using corrupted test set for getting embeddings")
@@ -144,20 +162,37 @@ class TestStatisticBackprop:
                 print("images with patch size 32 corrupted are used")
                 with np.load(out_path) as f:
                     print(f.files)  # -> ['test0', 'test1']
-                    self.group0 = f["test0"]
-                    self.group1 = f["test1"]
+                    self.group_1 = f["test0"]
+                    self.group_2 = f["test1"]
 
-                self.group0_np = self.group0[: self.args.n]
-                self.group1_np = self.group1[: self.args.m]
+                self.group_1_np = self.group_1[: self.args.n]
+                self.group_2_np = self.group_2[: self.args.m]
 
         # convert numpy array to tensor
-        self.group0 = self._convert_to_tensor(self.group0_np)
-        self.group1 = self._convert_to_tensor(self.group1_np)
+        self.group_1 = self._convert_to_tensor(self.group_1_np)
+        self.group_2 = self._convert_to_tensor(self.group_2_np)
         # make dataloaders for each group
-        self.group0_loader = DataLoader(self.group0, batch_size=self.args.bs, shuffle=False, drop_last=True)
-        self.group1_loader = DataLoader(self.group1, batch_size=self.args.bs, shuffle=False, drop_last=True)
+        self.group_1_loader = DataLoader(self.group_1, batch_size=self.args.bs, shuffle=False, drop_last=True)
+        self.group_2_loader = DataLoader(self.group_2, batch_size=self.args.bs, shuffle=False, drop_last=True)
+        # save_attributions(group_1_attr, group_2_attr,latent_dim_idx)
+        self.m1 = self.group_1.shape[0]
+        self.m2 = self.group_2.shape[0]
         print(f"Data Loaders were built!")
         print(f"########################")
+
+    def _add_grey_circle_artifact_all_samples(self, group_np):
+        # Apply grey circle to each sample in group_2
+        print(f"Applying grey circle to each sample in group_2...")
+        for i in range(len(group_np)):
+            # Get image dimensions
+            height, width = group_np[i].shape
+            # Insert grey circle at center with specified radius and offset
+            center_y = height // 2 + self.args.circle_center_offset
+            center_x = width // 2 + self.args.circle_center_offset
+            center = (center_y, center_x)
+            group_np[i] = insert_grey_circle(group_np[i], center, self.args.circle_radius, self.args.circle_grey_value)
+
+        return group_np
 
     def _load_checkpoint(self):
         """Load model checkpoint."""
@@ -285,7 +320,7 @@ class TestStatisticBackprop:
         # Create explainer based on method
         if self.args.expl == "cam":
             # print(f'{self.args.expl} method was called with encoder:{self.encoder}')
-            explainer = GradCAM(self.encoder, target_layer=self.args.target_layer, relu=True, device=self.device)
+            explainer = GradCAM(self.encoder, target_layer=self.args.target_layer, relu=False, device=self.device)
         elif self.args.expl == "cam++":
             print(f"cam++ method was called for visualisation.")
             print(f"###########################################")
@@ -314,11 +349,11 @@ class TestStatisticBackprop:
             raise ValueError(f"Unknown explanation method: {self.args.expl}")
 
         # Calculate mean embeddings
-        group0_mean = self.get_mean_embeddings(explainer, self.group0_loader)
-        group1_mean = self.get_mean_embeddings(explainer, self.group1_loader)
-        D = group0_mean - group1_mean
-        print(f"group0_mean:{group0_mean.shape}")
-        print(f"group1_mean:{group1_mean.shape}")
+        group_1_mean = self.get_mean_embeddings(explainer, self.group_1_loader)
+        group_2_mean = self.get_mean_embeddings(explainer, self.group_2_loader)
+        D = group_1_mean - group_2_mean
+        print(f"group_1_mean:{group_1_mean.shape}")
+        print(f"group_2_mean:{group_2_mean.shape}")
         print(f"##########################")
         test_statistic = torch.norm(D, p=2) ** 2
         print(f"test_statistic:{test_statistic:.4f}")
@@ -333,8 +368,8 @@ class TestStatisticBackprop:
         Args:
             dataloader: DataLoader for the group
             explainer: GradCAM or LRP explainer object
-            D: Difference vector (group0_mean - group1_mean)
-            group_id: 0 for group0, 1 for group1
+            D: Difference vector (group_1_mean - group_2_mean)
+            group_id: 0 for group_1, 1 for group_2
             use_squared: If True, uses ||D||² (matching embeddingtest.py), else ||D||
         """
         attributions_list = []
@@ -418,75 +453,298 @@ class TestStatisticBackprop:
         test_statistic, D, explainer = self.backprobagate_statistics()
 
         # Process attributions with proper per-batch gradients
-        group0_attr, group0_embed = self.process_attributions(
-            self.group0_loader, explainer, D=D, group_id=0, use_squared=use_squared
+        group_1_attr, group_1_embed = self.process_attributions(
+            self.group_1_loader, explainer, D=D, group_id=0, use_squared=use_squared
         )
-        group1_attr, group1_embed = self.process_attributions(
-            self.group1_loader, explainer, D=D, group_id=1, use_squared=use_squared
+        group_2_attr, group_2_embed = self.process_attributions(
+            self.group_2_loader, explainer, D=D, group_id=1, use_squared=use_squared
         )
 
         # compute test-statistic and p-value
-        mmd = MMDTest(features_X=group0_embed, features_Y=group1_embed, n_perm=1000)
-        test_statistic = mmd._compute_mmd(group0_embed, group1_embed)
+        mmd = MMDTest(features_X=group_1_embed, features_Y=group_2_embed, n_perm=1000)
+        test_statistic = mmd._compute_mmd(group_1_embed, group_2_embed)
         p_value = mmd._compute_p_value()
         print(f"Test statistic (MMD): {test_statistic:.4f}, p-value: {p_value:.4f}")
 
-        # save_attributions(group0_attr, group1_attr,latent_dim_idx)
-        self.m1 = group0_attr.shape[0]
-        self.m2 = group1_attr.shape[0]
+        # save_attributions(group_1_attr, group_2_attr,latent_dim_idx)
+        full_path1 = self.heatmap_path["gr1"]
+        full_path2 = self.heatmap_path["gr2"]
 
-        # save_attributions(group0_attr, group1_attr,latent_dim_idx)
-        full_path1 = os.path.join(
-            self.heatmap_dir, f"gr1_{len(self.group0)}_{self.m1}_{self.args.expl}_{self.args.exp}.npy"
-        )
-        full_path2 = os.path.join(
-            self.heatmap_dir, f"gr2_{len(self.group1)}_{self.m2}_{self.args.expl}_{self.args.exp}.npy"
-        )
+        np.save(full_path1, group_1_attr)
+        np.save(full_path2, group_2_attr)
 
-        np.save(full_path1, group0_attr)
-        np.save(full_path2, group1_attr)
-
-        print(f"gr1:{group0_attr.shape}")
-        print(f"gr2:{group1_attr.shape}")
+        print(f"gr1:{group_1_attr.shape}")
+        print(f"gr2:{group_2_attr.shape}")
 
         print("Heatmaps were created")
 
-        return (group0_attr, group1_attr)
+        return (group_1_attr, group_2_attr)
 
     def overlay_hetmap(self, idx, alpha=0.5):
         """Overlay heatmap on the original image."""
         # Load original image
-        if idx < len(self.group0):
-            img0 = self.group0_np[idx]
-        if idx < len(self.group1):
-            img1 = self.group1_np[idx]
+        if idx < len(self.group_1):
+            img0 = self.group_1_np[idx]
+        if idx < len(self.group_2):
+            img1 = self.group_2_np[idx]
 
         # Load heatmap
-        full_path1 = os.path.join(
-            self.heatmap_dir, f"gr1_{len(self.group0)}_{self.m1}_{self.args.expl}_{self.args.exp}.npy"
-        )
-        full_path2 = os.path.join(
-            self.heatmap_dir, f"gr2_{len(self.group1)}_{self.m2}_{self.args.expl}_{self.args.exp}.npy"
-        )
-        group0_attr = np.load(full_path1)
-        group1_attr = np.load(full_path2)
+        full_path1 = self.heatmap_path["gr1"]
+        full_path2 = self.heatmap_path["gr2"]
+        group_1_attr = np.load(full_path1)
+        group_2_attr = np.load(full_path2)
         # Select corresponding heatmaps
-        gcam0 = group0_attr[idx]
-        gcam1 = group1_attr[idx]
+        gcam_1 = group_1_attr[idx]
+        gcam_2 = group_2_attr[idx]
         # Overlay heatmap
-        _, overlaid_img0 = save_cam_with_alpha(img0, gcam0, alpha=alpha)
-        _, overlaid_img1 = save_cam_with_alpha(img1, gcam1, alpha=alpha)
+        _, overlaid_img0 = save_cam_with_alpha(img0, gcam_1, alpha=alpha)
+        _, overlaid_img1 = save_cam_with_alpha(img1, gcam_2, alpha=alpha)
 
         # Save overlay images
         full_path1_ov = os.path.join(
-            self.overlay_dir, f"gr1_{len(self.group0)}_{self.m1}_{self.args.expl}_{self.args.idx}_{self.args.exp}.png"
+            self.overlay_dir, f"gr1_{len(self.group_1)}_{self.m1}_{self.args.expl}_{self.args.idx}_{self.args.exp}.png"
         )
         full_path2_ov = os.path.join(
-            self.overlay_dir, f"gr2_{len(self.group1)}_{self.m2}_{self.args.expl}_{self.args.idx}_{self.args.exp}.png"
+            self.overlay_dir, f"gr2_{len(self.group_2)}_{self.m2}_{self.args.expl}_{self.args.idx}_{self.args.exp}.png"
         )
         Image.fromarray(overlaid_img0).save(full_path1_ov)
         Image.fromarray(overlaid_img1).save(full_path2_ov)
         return overlaid_img0, overlaid_img1
+    
+    def faithfulness_eval(self, random_attr=False):
+        """Evaluate faithfulness of attributions using superpixel-based ranking.
+
+        Creates superpixel segmentation for each sample in group_2,
+        then ranks all segments across all images by the sum of attributions
+        within each segment. Then progressively replaces top-ranked superpixels
+        with their group_1 counterparts and tracks changes in test statistic.
+
+        Returns:
+        --------
+        results : dict
+            Dictionary containing:
+            - 'ranking_list': list of ranked segments
+            - 'replacements': list of replacement steps with statistics
+            - 'test_statistics': list of test statistics after each replacement
+            - 'p_values': list of p-values after each replacement
+        """
+        if self.args.dst != "faithfulness_eval":
+            raise ValueError("Faithfulness evaluation requires dst to be 'faithfulness_eval'")
+
+        print("Starting faithfulness evaluation...")
+        print("=" * 60)
+
+        if random_attr == False:
+            # Load heatmaps (attributions) for group_2
+            print(f"Loading heatmaps from:")
+            print(f"  Group 1: {self.heatmap_path['gr2']}")
+
+            if not os.path.exists(self.heatmap_path['gr2']):
+                raise FileNotFoundError(f"Heatmap file not found: {self.heatmap_path['gr2']}")
+
+            group_2_heatmaps = np.load(self.heatmap_path['gr2'])  # Shape: (m_samples, height, width)
+
+            print(f"Loaded heatmaps - Group 1: {group_2_heatmaps.shape}")
+            print("=" * 60)
+
+            # Step 1: Rank superpixels by attribution sum
+            print("\nStep 1: Ranking superpixels by attribution sum...")
+            ranking_list, superpixel_masks = self._rank_superpixels_by_attr_sum(self.group_2_np, group_2_heatmaps)
+        else:
+            print("\nRandomly shuffling superpixel rankings for control experiment...")
+            ranking_list, superpixel_masks = self._rank_superpixels_by_attr_sum(self.group_2_np, np.random.rand(*self.group_2_np.shape))
+            random.shuffle(ranking_list)
+
+        # Step 2: Progressively replace superpixels and compute statistics
+        print("\nStep 2: Progressively replacing superpixels and computing statistics...")
+        results = self._progressive_replacement_analysis(self.group_2_np, self.group_1_np, ranking_list, superpixel_masks)
+
+        return results
+
+    def _rank_superpixels_by_attr_sum(self, images, heatmaps):
+        """Rank all superpixels by their attribution sum.
+
+        Returns:
+        --------
+        ranking_list : list of dict
+            Ranked segments
+        superpixel_masks : dict
+            Dictionary mapping (image_idx, segment_id) to boolean mask
+        """
+        all_segments = []
+        superpixel_masks = {}
+
+        print(f"\nProcessing Group 1 ({len(images)} images)...")
+        for img_idx in range(len(images)):
+            image = images[img_idx]
+            heatmap = heatmaps[img_idx]
+
+            # Create superpixel segmentation
+            center_y = image.shape[0] // 2 + self.args.circle_center_offset
+            center_x = image.shape[1] // 2 + self.args.circle_center_offset
+            superpixel_labels, _ = segment_image_with_circle_superpixel(
+                image,
+                center=(center_y, center_x),
+                radius=self.args.circle_radius * 1.1, # increase radius slightly to cover full circle
+                n_segments=self.args.n_superpixels,
+                compactness=self.args.superpixel_compactness,
+                visualize=False
+            )
+
+            # For each superpixel, calculate the sum of attributions
+            unique_segments = np.unique(superpixel_labels)
+            for segment_id in unique_segments:
+                segment_mask = (superpixel_labels == segment_id)
+                attribution_sum = np.sum(heatmap[segment_mask])
+
+                # Store mask for later use
+                superpixel_masks[(img_idx, int(segment_id))] = segment_mask
+
+                all_segments.append({
+                    'image_idx': img_idx,
+                    'segment_id': int(segment_id),
+                    'attribution_sum': float(attribution_sum),
+                    'n_pixels': int(np.sum(segment_mask))
+                })
+
+            if (img_idx + 1) % 10 == 0:
+                print(f"  Processed {img_idx + 1}/{len(images)} images")
+
+        print(f"Group 1 complete: {len(all_segments)} segments total")
+
+        # Sort all segments by attribution sum (descending)
+        ranking_list = sorted(all_segments, key=lambda x: x['attribution_sum'], reverse=True)
+
+        # Add rank to each segment
+        for rank, segment in enumerate(ranking_list, start=1):
+            segment['rank'] = rank
+
+        return ranking_list, superpixel_masks
+
+    def _progressive_replacement_analysis(self, group_np, group_to_replace_np, ranking_list, superpixel_masks):
+        """Progressively replace top-ranked superpixels and compute statistics.
+
+        Parameters:
+        -----------
+        ranking_list : list of dict
+            Ranked segments
+        superpixel_masks : dict
+            Dictionary mapping (image_idx, segment_id) to boolean mask
+
+        Returns:
+        --------
+        results : dict
+            Analysis results with statistics for each replacement step
+        """
+        # Make a copy of group_2 that we'll progressively modify
+        group_modified = group_np.copy()
+
+        # Storage for results
+        test_statistics = []
+        p_values = []
+        n_replaced = []
+
+        # Convert to tensors
+        group_to_replace_np_tensor = self._convert_to_tensor(group_to_replace_np)
+        group_modified_tensor = self._convert_to_tensor(group_modified)
+
+        # Create dataloaders
+        group_to_replace_loader = DataLoader(group_to_replace_np_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
+        group_modified_loader = DataLoader(group_modified_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
+        group_to_replace_embed, group_modified_embed = self._retrieve_embeddings(group_to_replace_loader, group_modified_loader)
+
+        group_to_replace_embed = np.vstack(group_to_replace_embed)
+        group_modified_embed = np.vstack(group_modified_embed)
+
+        # Compute baseline (no replacements)
+        print("\nComputing baseline statistics (no replacements)...")
+        test_stat, p_val = self._compute_test_statistic(group_to_replace_embed, group_modified_embed)
+        test_statistics.append(float(test_stat))
+        p_values.append(float(p_val))
+        n_replaced.append(0)
+        print(f"  Baseline: test_stat={test_stat:.4f}, p_value={p_val:.4f}")
+
+        # Progressively replace superpixels
+        replacement_steps = len(ranking_list)
+        print(f"\nReplacing top {replacement_steps} superpixels...")
+
+        for i in range(replacement_steps):
+            segment = ranking_list[i]
+            img_idx = segment['image_idx']
+            segment_id = segment['segment_id']
+
+            # Get the mask for this superpixel
+            mask = superpixel_masks[(img_idx, segment_id)]
+
+            # Replace pixels in group_2_modified with corresponding pixels from group_1
+            group_modified[img_idx][mask] = group_to_replace_np[img_idx][mask]
+            step_embeddings = self.encoder(self._convert_to_tensor(np.expand_dims(group_modified[img_idx],0)))
+            step_embeddings = step_embeddings.view(step_embeddings.size()[0], -1)
+            group_modified_embed[img_idx] = step_embeddings.detach().cpu().numpy()
+
+            # Compute statistics after this replacement
+            if (i + 1) % 10 == 0 or i < 10 or i == replacement_steps - 1:
+                test_stat, p_val = self._compute_test_statistic(group_to_replace_embed, group_modified_embed)
+                test_statistics.append(float(test_stat))
+                p_values.append(float(p_val))
+                n_replaced.append(i + 1)
+                print(f"  After {i+1} replacements: test_stat={test_stat:.4f}, p_value={p_val:.4f}")
+
+        results = {
+            'ranking_list': ranking_list,
+            'test_statistics': test_statistics,
+            'p_values': p_values,
+            'n_replaced': n_replaced
+        }
+
+        return results
+
+    def _compute_test_statistic(self, group_1_embed, group_2_embed):
+        """Compute MMD test statistic and p-value for two groups of images.
+
+        Parameters:
+        -----------
+        group_1_images : np.ndarray
+            Group 0 images (n_samples, height, width)
+        group_2_images : np.ndarray
+            Group 1 images (m_samples, height, width)
+
+        Returns:
+        --------
+        test_statistic : float
+            MMD test statistic
+        p_value : float
+            P-value from permutation test
+        """
+
+        # compute test-statistic and p-value
+        mmd = MMDTest(features_X=group_1_embed, features_Y=group_2_embed, n_perm=1000)
+        test_statistic = mmd._compute_mmd(group_1_embed, group_2_embed)
+        p_value = mmd._compute_p_value()
+        print(f"Test statistic (MMD): {test_statistic:.4f}, p-value: {p_value:.4f}")
+
+        return test_statistic, p_value
+
+    def _retrieve_embeddings(self, group_1_loader: DataLoader[Any], group_2_loader: DataLoader[Any]):
+
+        group_1_embed = []
+        group_2_embed = []
+
+
+        with torch.no_grad():
+            for images in group_1_loader:
+                images = images.to(self.device)
+                embeddings = self.encoder(images)
+                embeddings = embeddings.view(embeddings.size()[0], -1)
+                group_1_embed.append(embeddings.cpu().numpy())
+
+            for images in group_2_loader:
+                images = images.to(self.device)
+                embeddings = self.encoder(images)
+                embeddings = embeddings.view(embeddings.size()[0], -1)
+                group_2_embed.append(embeddings.cpu().numpy())
+
+        return group_1_embed, group_2_embed
 
 
 if __name__ == "__main__":
@@ -543,6 +801,43 @@ if __name__ == "__main__":
         help="Target layer for GradCAM, if suppre: 7.2.conv3",
     )
 
+    # Faithfulness evaluation arguments
+    parser.add_argument(
+        "--n_superpixels",
+        type=int,
+        default=10,
+        required=False,
+        help="Number of superpixels for faithfulness evaluation. Lower values create larger, smoother superpixels (default: 50)",
+    )
+    parser.add_argument(
+        "--superpixel_compactness",
+        type=float,
+        default=10.0,
+        required=False,
+        help="Compactness parameter for superpixel segmentation. Higher values (20-40) create more regular, compact shapes (default: 20.0)",
+    )
+    parser.add_argument(
+        "--circle_radius",
+        type=int,
+        default=20,
+        required=False,
+        help="Radius of the circle region for faithfulness evaluation (default: 20)",
+    )
+    parser.add_argument(
+        "--circle_center_offset",
+        type=int,
+        default=0,
+        required=False,
+        help="Offset for circle center from image center, applied to both x and y (default: 0)",
+    )
+    parser.add_argument(
+        "--circle_grey_value",
+        type=int,
+        default=128,
+        required=False,
+        help="Grey value for the circle (0-255, default: 128 for mid-grey)",
+    )
+
     # LRP-specific arguments
     parser.add_argument(
         "--lrp_composite",
@@ -581,7 +876,7 @@ if __name__ == "__main__":
     experiment = TestStatisticBackprop(args)
 
     # Run experiment
-    group0_attr, group1_attr = experiment.run()
+    group_1_attr, group_2_attr = experiment.run()
 
     # Overlay heatmap on original image
     ov1, ov2 = experiment.overlay_hetmap(idx=args.idx, alpha=0.5)
