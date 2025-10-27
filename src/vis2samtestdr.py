@@ -85,8 +85,10 @@ class TestStatisticBackprop:
         m: number of samples in each group"""
         if self.args.dst == "test":
             print(f"Using test set for getting embeddings")
-            root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-            test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
+            # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
+            root_dir = "."
+            #test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
+            test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
             with np.load(out_path) as f:
                 print(f.files)  # -> ['test0', 'test1']
@@ -122,7 +124,8 @@ class TestStatisticBackprop:
 
             if self.args.deg == "bl-test":
                 print(f"Using corrupted test set for getting embeddings")
-                root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
+                # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
+                root_dir = "."
                 test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "True"
                 out_path = test_dir / "test_split.npz"
                 with np.load(out_path) as f:
@@ -159,9 +162,10 @@ class TestStatisticBackprop:
     def _load_checkpoint(self):
         """Load model checkpoint."""
         # This is the path for self-supervised SimCLR model
-        if args.ckp == "simclr":
+        if self.args.ckp == "simclr":
             print("Using self-supervised pre-trained model")
-            base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/Retina_Codes"
+            # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
+            base_path = "."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "self_supervised" / "simclr" / "simclr_ckpts"
             pre_exp = 2
@@ -178,12 +182,13 @@ class TestStatisticBackprop:
             print(f"self-supervised model loaded from checkpoint-dir")
             print("##########################################")
 
-        elif args.ckp == "fnt":
+        elif self.args.ckp == "fnt":
             print("Using fine-tuned model on two groups of data without corruption (False)")
-            base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
+            # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
+            base_path = "."
             root_dir = Path(base_path)
             # checkpoint_dir = root_dir / 'adni_results' / 'ckps' / 'model_finetun_last_2_False.pt'
-            checkpoint_dir = os.path.join(root_dir, args.model_path)
+            checkpoint_dir = os.path.join(root_dir, self.args.model_path)
             print(f"ckp_dir:{checkpoint_dir}")
             state_dict = torch.load(checkpoint_dir, map_location=self.device)
             net = ResNet50Predictor(embed_dim=2048, dropout=0.5).to(self.device)
@@ -196,7 +201,7 @@ class TestStatisticBackprop:
             print(f"fine-tuned model loaded from checkpoint-dir")
             print("##########################################")
 
-        elif args.ckp == "fnt_bl":
+        elif self.args.ckp == "fnt_bl":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
             base_path = "."
@@ -213,12 +218,12 @@ class TestStatisticBackprop:
             print(f"fine-tuned model fine-tuned on blurred images loaded from checkpoint-dir")
             print("##########################################")
 
-        elif args.ckp == "fnt_zer":
+        elif self.args.ckp == "fnt_zer":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
             base_path = "."
             root_dir = Path(base_path)
-            checkpoint_dir = os.path.join(root_dir, args.model_path)
+            checkpoint_dir = os.path.join(root_dir, self.args.model_path)
             print(f"ckp_dir:{checkpoint_dir}")
             state_dict = torch.load(checkpoint_dir, map_location=self.device)
             net = ResNet50Predictor(embed_dim=2048, dropout=0.5).to(self.device)
@@ -230,9 +235,10 @@ class TestStatisticBackprop:
             print(f"fine-tuned model fine-tuned on corrupted images loaded from: {checkpoint_dir}")
             print("##########################################")
 
-        elif args.ckp == "suppr":
+        elif self.args.ckp == "suppr":
             print("Using supervised pre-trained model without fine-tuning")
-            base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
+            # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
+            base_path = "."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "adni_results" / "ckps" / "resnet50_ukb_age_predict_epoch13.pth"
             weights = torch.load(checkpoint_dir, map_location=self.device)
