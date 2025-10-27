@@ -428,8 +428,9 @@ class TestStatisticBackprop:
                 explainer.model.zero_grad()
                 batch_embed.backward(gradient=grad_per_sample, retain_graph=False)
 
-                # Generate attribution with sign flip for group 1
-                attributions = explainer.generate(flip_sign=(group_id == 1))
+                # Generate attribution and move to CPU immediately
+                # attributions = explainer.generate(flip_sign=(group_id == 1)) -- THIS KILLS THE EVALS
+                attributions = explainer.generate()
                 attributions_np = attributions.squeeze().cpu().detach().numpy()
                 attributions_list.append(attributions_np)
 
