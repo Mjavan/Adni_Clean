@@ -73,7 +73,7 @@ class GradCAM(ProbBase):
                 module.register_full_backward_hook(func_b)
                 module.register_forward_hook(func_f)
 
-    def generate(self):
+    def generate(self, flip_sign=False):
         # grads: dY/dA, activations: A
         # grads: [8,2048,8,8], when bs=8, C=2048, H=W=8 for resnet50 last conv layer
         # activations: [8,2048,8,8] bs=8, C=2048, H=W=8 for resnet50 last conv layer
@@ -89,6 +89,10 @@ class GradCAM(ProbBase):
         # cam = [8, 1, 8, 8]
         cam = (weights * activations).sum(dim=1, keepdim=True)  # (B,1,H,W)
         print(f"\nGetting cam before relu in generate:{cam.shape}")
+
+        # Flip sign if requested (for group 1 in MMD test statistic)
+        if flip_sign:
+            cam = -cam
 
         # ReLU or abs
         cam = F.relu(cam) if self.relu else cam.abs()
@@ -111,7 +115,7 @@ class GradCAMPlusPlus(ProbBase):
                 module.register_full_backward_hook(func_b)
                 module.register_forward_hook(func_f)
 
-    def generate(self):
+    def generate(self, flip_sign=False):
         # A is activations and g is gradients
         # A: [8,2048,8,8], g: [8,2048,8,8] when bs=8, C=2048, H=W=8 for resnet50 last conv layer
         # C: here is the number of channels in explainability method (2048 for resnet50 last conv layer)
@@ -133,6 +137,11 @@ class GradCAMPlusPlus(ProbBase):
         weights = (alpha * F.relu(g)).sum(dim=(2, 3), keepdim=True)  # (B,C,1,1)
 
         cam = (weights * A).sum(dim=1, keepdim=True)  # (B,1,H,W)
+
+        # Flip sign if requested (for group 1 in MMD test statistic)
+        if flip_sign:
+            cam = -cam
+
         cam = F.relu(cam)
 
         cam = F.interpolate(cam, (self.image_size, self.image_size), mode="bilinear", align_corners=False)
@@ -219,12 +228,17 @@ class LayerCAM(ProbBase):
                 module.register_full_backward_hook(func_b)
                 module.register_forward_hook(func_f)
 
-    def generate(self):
+    def generate(self, flip_sign=False):
         print(f"heatmaps from LayerCAM are generated")
         A = self.get_conv_outputs(self.outputs_forward, self.target_layer)  # (B,C,H,W)
         g = self.get_conv_outputs(self.outputs_backward, self.target_layer)  # (B,C,H,W)
 
         cam = (F.relu(g) * A).sum(dim=1, keepdim=True)  # (B,1,H,W)
+
+        # Flip sign if requested (for group 1 in MMD test statistic)
+        if flip_sign:
+            cam = -cam
+
         cam = F.relu(cam) if self.relu else cam.abs()
         cam = F.interpolate(cam, (self.image_size, self.image_size), mode="bilinear", align_corners=False)
         return cam
