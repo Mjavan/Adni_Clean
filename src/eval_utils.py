@@ -287,3 +287,130 @@ def print_auroc_table(auroc_dict):
     print(f"Best method: {best_method.upper()} (AUROC = {auroc_dict[best_method]:.4f})")
     print("Note: Lower AUROC indicates better faithfulness")
     print("=" * 60 + "\n")
+
+
+def plot_max_sensitivity_results(sensitivity_results_dict):
+    """
+    Plot max-sensitivity results with grouped bar plots.
+
+    Parameters:
+    -----------
+    sensitivity_results_dict : dict
+        Dictionary mapping method names to their max-sensitivity results
+    """
+    methods = list(sensitivity_results_dict.keys())
+    n_methods = len(methods)
+
+    # Extract data - average across all methods for test stat and p-value
+    # (they should be similar since they measure the same statistical test)
+    first_method = methods[0]
+    test_stat_mean_overall = sensitivity_results_dict[first_method]['mean_test_stat_sensitivity']
+    test_stat_max_overall = sensitivity_results_dict[first_method]['max_test_stat_sensitivity']
+    pvalue_mean_overall = sensitivity_results_dict[first_method]['mean_p_value_sensitivity']
+    pvalue_max_overall = sensitivity_results_dict[first_method]['max_p_value_sensitivity']
+
+    # Attribution sensitivity per method
+    attr_g1_mean = [sensitivity_results_dict[m]['mean_attr_sensitivity_group1'] for m in methods]
+    attr_g1_max = [sensitivity_results_dict[m]['max_attr_sensitivity_group1'] for m in methods]
+
+    attr_g2_mean = [sensitivity_results_dict[m]['mean_attr_sensitivity_group2'] for m in methods]
+    attr_g2_max = [sensitivity_results_dict[m]['max_attr_sensitivity_group2'] for m in methods]
+
+    # Create figure with 1x4 layout
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+
+    # Bar settings for method comparison
+    x = np.arange(n_methods)
+    width = 0.35
+
+    # Plot 1: Test Statistic (overall, not per method)
+    ax = axes[0]
+    metrics = ['Avg', 'Max']
+    values = [test_stat_mean_overall, test_stat_max_overall]
+    colors = ['orange', 'red']
+    bars = ax.bar(range(len(metrics)), values, color=colors, alpha=0.8)
+    ax.set_ylabel('Test Statistic Sensitivity', fontsize=12)
+    ax.set_title('Test Statistic Sensitivity', fontsize=14, fontweight='bold')
+    ax.set_xticks(range(len(metrics)))
+    ax.set_xticklabels(metrics)
+    ax.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Plot 2: P-value (overall, not per method)
+    ax = axes[1]
+    metrics = ['Avg', 'Max']
+    values = [pvalue_mean_overall, pvalue_max_overall]
+    colors = ['orange', 'red']
+    bars = ax.bar(range(len(metrics)), values, color=colors, alpha=0.8)
+    ax.set_ylabel('P-value Sensitivity', fontsize=12)
+    ax.set_title('P-value Sensitivity', fontsize=14, fontweight='bold')
+    ax.set_xticks(range(len(metrics)))
+    ax.set_xticklabels(metrics)
+    ax.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Plot 3: Attribution Group 1
+    ax = axes[2]
+    ax.bar(x - width/2, attr_g1_mean, width, label='Avg', color='orange', alpha=0.8)
+    ax.bar(x + width/2, attr_g1_max, width, label='Max', color='red', alpha=0.8)
+    ax.set_ylabel('Attribution Sensitivity (MSE)', fontsize=12)
+    ax.set_title('Attribution Sensitivity - Group 1', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([m.upper() for m in methods])
+    ax.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Plot 4: Attribution Group 2
+    ax = axes[3]
+    ax.bar(x - width/2, attr_g2_mean, width, label='Avg', color='orange', alpha=0.8)
+    ax.bar(x + width/2, attr_g2_max, width, label='Max', color='red', alpha=0.8)
+    ax.set_ylabel('Attribution Sensitivity (MSE)', fontsize=12)
+    ax.set_title('Attribution Sensitivity - Group 2', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([m.upper() for m in methods])
+    ax.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Set the same y-axis limits for both attribution plots
+    all_attr_values = attr_g1_mean + attr_g1_max + attr_g2_mean + attr_g2_max
+    y_min = min(all_attr_values) * 0.9
+    y_max = max(all_attr_values) * 1.1
+    axes[2].set_ylim([y_min, y_max])
+    axes[3].set_ylim([y_min, y_max])
+
+    plt.tight_layout()
+    plt.savefig('max_sensitivity_comparison.png', dpi=150, bbox_inches='tight')
+    print("\nMax-sensitivity plot saved to: max_sensitivity_comparison.png")
+    plt.show()
+
+
+def print_max_sensitivity_table(sensitivity_results_dict):
+    """
+    Print formatted table of max-sensitivity results.
+
+    Parameters:
+    -----------
+    sensitivity_results_dict : dict
+        Dictionary mapping method names to their max-sensitivity results
+    """
+    print("\n" + "=" * 90)
+    print("MAX-SENSITIVITY EVALUATION")
+    print("=" * 90)
+    print(f"{'Method':<12} {'Test Stat':<18} {'P-value':<18} {'Attr G1':<18} {'Attr G2':<18}")
+    print(f"{'':12} {'(Avg/Max)':<18} {'(Avg/Max)':<18} {'(Avg/Max)':<18} {'(Avg/Max)':<18}")
+    print("-" * 90)
+
+    for method in sensitivity_results_dict.keys():
+        res = sensitivity_results_dict[method]
+
+        print(f"{method.upper():<12} "
+              f"{res['mean_test_stat_sensitivity']:.2e}/{res['max_test_stat_sensitivity']:.2e}      "
+              f"{res['mean_p_value_sensitivity']:.2e}/{res['max_p_value_sensitivity']:.2e}      "
+              f"{res['mean_attr_sensitivity_group1']:.2e}/{res['max_attr_sensitivity_group1']:.2e}      "
+              f"{res['mean_attr_sensitivity_group2']:.2e}/{res['max_attr_sensitivity_group2']:.2e}")
+
+    print("-" * 90)
+    print("Note: Lower sensitivity = more robust explanations")
+    print("=" * 90 + "\n")

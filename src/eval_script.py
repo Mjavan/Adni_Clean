@@ -6,7 +6,13 @@ import sys
 import argparse
 from argparse import Namespace
 
-from src.eval_utils import plot_faithfulness_results, compute_auroc_faithfulness, print_auroc_table
+from src.eval_utils import (
+    plot_faithfulness_results,
+    compute_auroc_faithfulness,
+    print_auroc_table,
+    plot_max_sensitivity_results,
+    print_max_sensitivity_table
+)
 
 # Add src directory to Python path
 project_root = Path(__file__).parent.absolute()
@@ -46,7 +52,7 @@ base_args = {
 
 if __name__ == "__main__":
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Run faithfulness evaluation for explainability methods')
+    parser = argparse.ArgumentParser(description='Run evaluation for explainability methods')
     parser.add_argument(
         '--methods',
         nargs='+',
@@ -54,39 +60,78 @@ if __name__ == "__main__":
         choices=["cam", "cam++", "lcam", "lrp"],
         help='Explainability methods to evaluate (default: cam cam++ lcam lrp)'
     )
+    parser.add_argument(
+        '--eval_type',
+        type=str,
+        default='sensitivity',
+        choices=['faithfulness', 'sensitivity'],
+        help='Type of evaluation: faithfulness or sensitivity (default: faithfulness)'
+    )
     cli_args = parser.parse_args()
 
     # Methods to evaluate
     METHODS = cli_args.methods
+    EVAL_TYPE = cli_args.eval_type
+
+    print(f"Evaluation type: {EVAL_TYPE.upper()}")
     print(f"Evaluating methods: {', '.join([m.upper() for m in METHODS])}")
 
-    # Dictionary to store results
-    all_results = {}
+    if EVAL_TYPE == 'faithfulness':
+        # Dictionary to store results
+        all_results = {}
 
-    # Run for each method
-    for method in METHODS:
-        print(f"\n{'='*60}")
-        print(f"Processing: {method.upper()}")
-        print(f"{'='*60}")
+        # Run for each method
+        for method in METHODS:
+            print(f"\n{'='*60}")
+            print(f"Processing: {method.upper()}")
+            print(f"{'='*60}")
 
-        # Create args for this method
-        args = Namespace(**base_args)
-        args.expl = method
-        args.exp = f'{method}-faithfulness-test-eval'
+            # Create args for this method
+            args = Namespace(**base_args)
+            args.expl = method
+            args.exp = f'{method}-faithfulness-test-eval'
 
-        # Run experiment
-        experiment = TestStatisticBackprop(args)
-        group0_attr, group1_attr = experiment.run()
-        results = experiment.faithfulness_eval()
+            # Run experiment
+            experiment = TestStatisticBackprop(args)
+            group0_attr, group1_attr = experiment.run()
+            results = experiment.faithfulness_eval()
 
-        # Store results
-        all_results[method] = results
+            # Store results
+            all_results[method] = results
 
-    all_results["random"] = experiment.faithfulness_eval(random_attr=True)
-    # Plot all results together
-    plot_faithfulness_results(all_results)
+        all_results["random"] = experiment.faithfulness_eval(random_attr=True)
 
-    # Compute and print AUROC
-    auroc_dict = compute_auroc_faithfulness(all_results)
-    print_auroc_table(auroc_dict)
+        # Plot all results together
+        plot_faithfulness_results(all_results)
+
+        # Compute and print AUROC
+        auroc_dict = compute_auroc_faithfulness(all_results)
+        print_auroc_table(auroc_dict)
+
+    elif EVAL_TYPE == 'sensitivity':
+        sensitivity_results = {}
+
+        # Run for each method
+        for method in METHODS:
+            print(f"\n{'='*60}")
+            print(f"Max-Sensitivity: {method.upper()}")
+            print(f"{'='*60}")
+
+            # Create args for this method
+            args = Namespace(**base_args)
+            args.expl = method
+            args.exp = f'{method}-sensitivity-test-eval'
+            args.dst = 'test'
+
+            # Run experiment
+            experiment = TestStatisticBackprop(args)
+            group0_attr, group1_attr = experiment.run()
+            results = experiment.max_sensitivity_evaluation(10, -0.1, 0.1)
+
+            # Store results
+            sensitivity_results[method] = results
+
+        # Plot and print max-sensitivity results
+        plot_max_sensitivity_results(sensitivity_results)
+        print_max_sensitivity_table(sensitivity_results)
     

@@ -748,6 +748,166 @@ class TestStatisticBackprop:
         return group_1_embed, group_2_embed
 
 
+    def max_sensitivity_evaluation(self, n_samples=50, lower_bound=-0.05, upper_bound=0.05, norm_ord=2):
+        """Evaluate max-sensitivity of attributions.
+
+        Measures robustness by perturbing ALL samples in both groups,
+        recalculating test statistics, and measuring changes.
+        Based on Yeh et al. (2019) "On the (In)fidelity and Sensitivity of Explanations".
+
+        Parameters:
+        -----------
+        n_samples : int
+            Number of perturbation iterations (default: 50)
+        lower_bound : float
+            Lower bound for uniform noise perturbation (default: -0.05)
+        upper_bound : float
+            Upper bound for uniform noise perturbation (default: 0.05)
+        norm_ord : int
+            Order of the norm for sensitivity computation (default: 2 for Frobenius)
+
+        Returns:
+        --------
+        results : dict
+            Dictionary containing sensitivity results.
+        """
+        if self.args.dst != "test":
+            raise ValueError("Max-sensitivity evaluation requires dst to be 'test'")
+
+        print("Starting max-sensitivity evaluation...")
+        print("=" * 60)
+
+        # Get original embeddings for both groups
+        print("Computing baseline embeddings...")
+        group_1_tensor = self._convert_to_tensor(self.group_1_np)
+        group_2_tensor = self._convert_to_tensor(self.group_2_np)
+
+        group_1_loader = DataLoader(group_1_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
+        group_2_loader = DataLoader(group_2_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
+
+        group_1_embed_original, group_2_embed_original = self._retrieve_embeddings(group_1_loader, group_2_loader)
+        group_1_embed_original = np.vstack(group_1_embed_original)
+        group_2_embed_original = np.vstack(group_2_embed_original)
+
+        # Compute baseline test statistic and p-value
+        original_test_stat, original_p_value = self._compute_test_statistic(group_1_embed_original, group_2_embed_original)
+        print(f"Baseline test_stat: {original_test_stat:.4f}, p_value: {original_p_value:.4f}")
+
+        # Compute baseline attributions
+        print("Computing baseline attributions...")
+        _, D, explainer = self.backprobagate_statistics()
+        group_1_attr_original, _ = self.process_attributions(
+            group_1_loader, explainer, D=D, group_id=0, use_squared=True
+        )
+        group_2_attr_original, _ = self.process_attributions(
+            group_2_loader, explainer, D=D, group_id=1, use_squared=True
+        )
+        print("=" * 60)
+
+        # Storage for sensitivities
+        test_stat_sensitivities = []
+        p_value_sensitivities = []
+        attribution_sensitivities_group1 = []
+        attribution_sensitivities_group2 = []
+
+        # Perform n_samples perturbation iterations
+        print(f"\nPerforming {n_samples} perturbation iterations on all samples...")
+
+        for iteration in range(n_samples):
+            # Add noise directly to tensors (values are already ImageNet normalized)
+            noise_1 = torch.FloatTensor(group_1_tensor.shape).uniform_(lower_bound, upper_bound)
+            group_1_perturbed_tensor = group_1_tensor + noise_1.to(self.device)
+
+            noise_2 = torch.FloatTensor(group_2_tensor.shape).uniform_(lower_bound, upper_bound)
+            group_2_perturbed_tensor = group_2_tensor + noise_2.to(self.device)
+
+            group_1_perturbed_loader = DataLoader(group_1_perturbed_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
+            group_2_perturbed_loader = DataLoader(group_2_perturbed_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
+
+            group_1_embed_perturbed, group_2_embed_perturbed = self._retrieve_embeddings(group_1_perturbed_loader, group_2_perturbed_loader)
+            group_1_embed_perturbed = np.vstack(group_1_embed_perturbed)
+            group_2_embed_perturbed = np.vstack(group_2_embed_perturbed)
+
+            # Compute perturbed test statistic and p-value
+            perturbed_test_stat, perturbed_p_value = self._compute_test_statistic(group_1_embed_perturbed, group_2_embed_perturbed)
+
+            # Compute D from perturbed embeddings
+            group_1_mean_perturbed = torch.tensor(group_1_embed_perturbed.mean(axis=0)).to(self.device)
+            group_2_mean_perturbed = torch.tensor(group_2_embed_perturbed.mean(axis=0)).to(self.device)
+            D_perturbed = group_1_mean_perturbed - group_2_mean_perturbed
+
+            # Compute perturbed attributions using perturbed D
+            group_1_attr_perturbed, _ = self.process_attributions(
+                group_1_perturbed_loader, explainer, D=D_perturbed, group_id=0, use_squared=True
+            )
+            group_2_attr_perturbed, _ = self.process_attributions(
+                group_2_perturbed_loader, explainer, D=D_perturbed, group_id=1, use_squared=True
+            )
+
+            # Compute sensitivity for this iteration
+            test_stat_diff = abs(original_test_stat - perturbed_test_stat)
+            p_value_diff = abs(original_p_value - perturbed_p_value)
+
+            # Compute MSE (Mean Squared Error) for attribution differences
+            attr_diff_group1 = np.mean((group_1_attr_original - group_1_attr_perturbed) ** 2)
+            attr_diff_group2 = np.mean((group_2_attr_original - group_2_attr_perturbed) ** 2)
+
+            test_stat_sensitivities.append(test_stat_diff)
+            p_value_sensitivities.append(p_value_diff)
+            attribution_sensitivities_group1.append(attr_diff_group1)
+            attribution_sensitivities_group2.append(attr_diff_group2)
+
+            if (iteration + 1) % 10 == 0 or iteration == 0:
+                print(f"  Iteration {iteration + 1}/{n_samples}: "
+                      f"test_stat_diff={test_stat_diff:.4f}, p_value_diff={p_value_diff:.4f}, "
+                      f"attr_diff_g1={attr_diff_group1:.4f}, attr_diff_g2={attr_diff_group2:.4f}")
+
+        # Compute statistics
+        mean_test_stat_sensitivity = np.mean(test_stat_sensitivities)
+        std_test_stat_sensitivity = np.std(test_stat_sensitivities)
+        max_test_stat_sensitivity = np.max(test_stat_sensitivities)
+
+        mean_p_value_sensitivity = np.mean(p_value_sensitivities)
+        std_p_value_sensitivity = np.std(p_value_sensitivities)
+        max_p_value_sensitivity = np.max(p_value_sensitivities)
+
+        mean_attr_sensitivity_group1 = np.mean(attribution_sensitivities_group1)
+        std_attr_sensitivity_group1 = np.std(attribution_sensitivities_group1)
+        max_attr_sensitivity_group1 = np.max(attribution_sensitivities_group1)
+
+        mean_attr_sensitivity_group2 = np.mean(attribution_sensitivities_group2)
+        std_attr_sensitivity_group2 = np.std(attribution_sensitivities_group2)
+        max_attr_sensitivity_group2 = np.max(attribution_sensitivities_group2)
+
+        results = {
+            'test_stat_sensitivities': test_stat_sensitivities,
+            'p_value_sensitivities': p_value_sensitivities,
+            'attribution_sensitivities_group1': attribution_sensitivities_group1,
+            'attribution_sensitivities_group2': attribution_sensitivities_group2,
+            'mean_test_stat_sensitivity': float(mean_test_stat_sensitivity),
+            'std_test_stat_sensitivity': float(std_test_stat_sensitivity),
+            'max_test_stat_sensitivity': float(max_test_stat_sensitivity),
+            'mean_p_value_sensitivity': float(mean_p_value_sensitivity),
+            'std_p_value_sensitivity': float(std_p_value_sensitivity),
+            'max_p_value_sensitivity': float(max_p_value_sensitivity),
+            'mean_attr_sensitivity_group1': float(mean_attr_sensitivity_group1),
+            'std_attr_sensitivity_group1': float(std_attr_sensitivity_group1),
+            'max_attr_sensitivity_group1': float(max_attr_sensitivity_group1),
+            'mean_attr_sensitivity_group2': float(mean_attr_sensitivity_group2),
+            'std_attr_sensitivity_group2': float(std_attr_sensitivity_group2),
+            'max_attr_sensitivity_group2': float(max_attr_sensitivity_group2),
+            'n_samples': n_samples,
+            'lower_bound': lower_bound,
+            'upper_bound': upper_bound,
+            'norm_ord': norm_ord,
+            'original_test_stat': float(original_test_stat),
+            'original_p_value': float(original_p_value)
+        }
+
+
+        return results
+    
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Statistic Backpropagation")
     parser.add_argument("--exp", type=str, default="cam-fnt10-uncor", help="Experiment name")
