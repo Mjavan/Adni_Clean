@@ -88,7 +88,7 @@ class TestStatisticBackprop:
         if self.args.dst == "test":
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-            root_dir = "."
+            root_dir = ".."
             #test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
@@ -102,7 +102,7 @@ class TestStatisticBackprop:
         elif self.args.dst == "faithfulness_eval":
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-            root_dir = "."
+            root_dir = ".."
             #test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
@@ -200,7 +200,7 @@ class TestStatisticBackprop:
         if self.args.ckp == "simclr":
             print("Using self-supervised pre-trained model")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "self_supervised" / "simclr" / "simclr_ckpts"
             pre_exp = 2
@@ -220,7 +220,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt":
             print("Using fine-tuned model on two groups of data without corruption (False)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             # checkpoint_dir = root_dir / 'adni_results' / 'ckps' / 'model_finetun_last_2_False.pt'
             checkpoint_dir = os.path.join(root_dir, self.args.model_path)
@@ -239,7 +239,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt_bl":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "adni_results" / "ckps" / "model_finetun_last_7_True.pt"
             state_dict = torch.load(checkpoint_dir, map_location=self.device)
@@ -256,7 +256,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt_zer":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = os.path.join(root_dir, self.args.model_path)
             print(f"ckp_dir:{checkpoint_dir}")
@@ -273,7 +273,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "suppr":
             print("Using supervised pre-trained model without fine-tuning")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "adni_results" / "ckps" / "resnet50_ukb_age_predict_epoch13.pth"
             weights = torch.load(checkpoint_dir, map_location=self.device)
@@ -476,8 +476,21 @@ class TestStatisticBackprop:
 
         print(f"gr1:{group_1_attr.shape}")
         print(f"gr2:{group_2_attr.shape}")
-
         print("Heatmaps were created")
+
+        # If we want to save embeddings as numpy arrays
+        if self.args.sav_embed_np:
+            embed_path1 = os.path.join(
+                self.embed_dir, f"gr1_{len(self.group_1)}_{self.m1}_{self.args.expl}_{self.args.exp}.npy"
+            )
+            embed_path2 = os.path.join(
+                self.embed_dir, f"gr2_{len(self.group_2)}_{self.m2}_{self.args.expl}_{self.args.exp}.npy"
+            )
+            np.save(embed_path1, group_1_embed)
+            np.save(embed_path2, group_2_embed)
+            print(f"Embeddings were saved as numpy arrays at:")
+            print(f"  Group 1: {embed_path1}")
+            print(f"  Group 2: {embed_path2}")
 
         return (group_1_attr, group_2_attr)
 
@@ -910,7 +923,7 @@ class TestStatisticBackprop:
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Statistic Backpropagation")
-    parser.add_argument("--exp", type=str, default="cam-fnt10-uncor", help="Experiment name")
+    parser.add_argument("--exp", type=str, default="cam-fntlstblc-uncor", help="Experiment name")
     parser.add_argument(
         "--annot_path",
         type=str,
@@ -918,6 +931,7 @@ if __name__ == "__main__":
         help="Path to annotations CSV file",
     )
     parser.add_argument("--sav_gr_np", type=bool, default=False, help="If we save two groups as numpy arrays")
+    parser.add_argument("--sav_embed_np", type=bool, default=True, help="If we save embeddings as numpy arrays")
     parser.add_argument("--corrupted", type=str, default=False, help="Use corrupted images for group 1")
     parser.add_argument("--deg", type=str, default=None, help="Degree of corruption: 4 or 8, test-4, zer-test ")
     parser.add_argument(
@@ -936,9 +950,9 @@ if __name__ == "__main__":
         default="/sc/projects/sci-lippert/chair/adni_t1_mprage/T1_3T_coronal_slice/T1_3T_coronal_mni_linear_hippo_resolution256/group_by_hippocampus",
         help="Path to image directory",
     )
-    parser.add_argument("--n", type=int, default=100, help="Number of samples in group 0")
-    parser.add_argument("--m", type=int, default=100, help="Number of samples in group 1")
-    parser.add_argument("--bs", type=int, default=100, help="Batch size for DataLoader")
+    parser.add_argument("--n", type=int, default=918, help="Number of samples in group 0")
+    parser.add_argument("--m", type=int, default=918, help="Number of samples in group 1")
+    parser.add_argument("--bs", type=int, default=18, help="Batch size for DataLoader")
     parser.add_argument(
         "--dst",
         type=str,
@@ -946,12 +960,12 @@ if __name__ == "__main__":
         choices=("full", "test", "corr"),
         help="Test set that we want to use for getting embeddings",
     )
-    parser.add_argument("--idx", type=int, default=0, help="Index of the image for overlaying")
+    parser.add_argument("--idx", type=int, default=20, help="Index of the image for overlaying")
     parser.add_argument("--random_state", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument(
         "--model_path",
         type=str,
-        default="adni_results/ckps/model_finetun_last_10_False.pt",
+        default="adni_results/ckps/model_finetun_best_12_False.pt",
         help="Path to model checkpoint",
     )
     parser.add_argument(
