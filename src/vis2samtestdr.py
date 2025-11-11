@@ -530,7 +530,7 @@ class TestStatisticBackprop:
         Visualize sample images with their attribution heatmaps.
 
         Args:
-            n_samples: Number of samples to visualize from each group
+            n_samples: Indices from samples that we want to visualize from each group
         """
         # Visualaise heatmaps from group1 and group2
         for idx in indices:
