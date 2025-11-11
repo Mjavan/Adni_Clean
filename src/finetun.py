@@ -30,7 +30,7 @@ def finetune(num_epochs=10, batch_size=32, args=None):
     if args.corrupted:
         print(f'upload corrupted images {args.deg}')
         train_dir = Path(root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted) / str(args.deg)
-        print(f'data corrupted:{arg.corrupted}, degree:{args.deg} is loaded!')
+        print(f'data corrupted:{args.corrupted}, degree:{args.deg} is loaded!')
     else:
         print('upload non-corrupted images')
         train_dir = Path(root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted)/ str(args.deg)
@@ -204,12 +204,12 @@ parser.add_argument('--exp', type=int, default= 16, help='Experiment number for 
 parser.add_argument('--pre', type=str, default= 'sup', help='Type of pre-trained model: sup or selsup')
 parser.add_argument('--corrupted', type=str, default=True, help='Use corrupted images for group 1')
 parser.add_argument('--freez', type=str, default='lastblk',choices=('all','none','lastblk'), help='If we want to freeze all layers except the linear layer on top')
-parser.add_argument('--deg', type=str, default='circ', choices=('zer32','circ') help='Degree of corruption: 4 or 8 or None, if we do not use corrupted images')      
+parser.add_argument('--deg', type=str, default='circ', choices=('zer32','circ'), help='Degree of corruption: 4 or 8 or None, if we do not use corrupted images')      
 
 if __name__=="__main__":
     
     args = parser.parse_args()
-    finetune(num_epochs=30, batch_size=32, args=args)
+    finetune(num_epochs=10, batch_size=32, args=args)
 
 
 
