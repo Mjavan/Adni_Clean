@@ -69,6 +69,24 @@ def finetune(num_epochs=10, batch_size=32, args=None):
         encoder = net
         print('supervised model loaded')
 
+
+    model = finetune_net(encoder, num_classes=2).to(device)
+    #print('#################################')
+    #print(f'whole model:{model}')
+    #print('#################################')
+    encoder = model.feature_extractor
+    #print('#################################')
+    #print(f'encoder:{encoder}')
+    #print('#################################')
+    container = encoder[0] if isinstance(encoder[0], nn.Sequential) else encoder
+    layer4 = container[7]   # final ResNet stage
+    last_block = layer4[-1] # last Bottleneck in that stage (index 2)
+    #print('#################################')
+    #print(f'last_block:{last_block}')
+    #print('#################################')
+
+
+
     # We freeze all layers except the final layer (linear probing)
     def freeze_all(m): 
         for p in m.parameters(): p.requires_grad = False
@@ -78,22 +96,35 @@ def finetune(num_epochs=10, batch_size=32, args=None):
         for p in m.parameters(): p.requires_grad = True
 
     # Option 1: Linear probe only (recommended start)
-    if args.freez_all:
+    if args.freez=='all':
         freeze_all(encoder)
         print('All layers were freezed! except the linear layer on top of that!')
-    else:
+        # Linear probe only:
+        opt = torch.optim.AdamW(model.linear.parameters(), lr=1e-3, weight_decay=1e-4)
+    elif args.freez=='none':
         print('All layers are trainable!')
         # Option 2: Unfreeze all layers (after probe baseline)
         unfreeze_module(encoder)
         print('All layers were unfreezed!')
-    model = finetune_net(encoder, num_classes=2).to(device)
-    # Only model.linear has trainable params
-    # Option 2: Unfreeze last block as needed (after probe baseline)
-    # e.g., for ResNet-style encoders:
-    # unfreeze_module(encoder.layer4)  # keep earlier layers frozen
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    elif args.freez=='lastblk':
+        print('All layers were freezed except the last block and linear layer on top of that!')
+        # freeze all first
+        freeze_all(encoder)
+        # unfreeze last block
+        for p in last_block.parameters():
+            p.requires_grad = True
 
-    # Linear probe only:
-    opt = torch.optim.AdamW(model.linear.parameters(), lr=1e-3, weight_decay=1e-4)
+        param_groups = [
+            {"params": model.linear.parameters(), "lr": 1e-3, "weight_decay": 1e-4},
+            {"params": last_block.parameters(),   "lr": 1e-4, "weight_decay": 1e-4},  # smaller LR for convs
+            ]
+        opt = torch.optim.AdamW(param_groups)
+
+    # check list of trainable paameters
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("Trainable parameters:", total_params)
+    
 
     # Defining loss function
     # Compute the cross-entropy loss between the predicted logits and the true labels
@@ -168,16 +199,16 @@ def finetune(num_epochs=10, batch_size=32, args=None):
 
 # here we can load test set and evaluate model on it
 parser = argparse.ArgumentParser(description='Fine tuning pre-trained model on datasets!')
-parser.add_argument('--exp', type=int, default= 10, help='Experiment number for fine-tuning')
+parser.add_argument('--exp', type=int, default= 15, help='Experiment number for fine-tuning')
 parser.add_argument('--pre', type=str, default= 'sup', help='Type of pre-trained model: sup or selsup')
-parser.add_argument('--corrupted', type=str, default=False, help='Use corrupted images for group 1')
-parser.add_argument('--freez_all', type=bool, default=True, help='If we want to freeze all layers except the linear layer on top')
-parser.add_argument('--deg', type=str, default=None, help='Degree of corruption: 4 or 8 or None, if we do not use corrupted images')      
+parser.add_argument('--corrupted', type=str, default=True, help='Use corrupted images for group 1')
+parser.add_argument('--freez', type=str, default='all',choices=('all','none','lastblk'), help='If we want to freeze all layers except the linear layer on top')
+parser.add_argument('--deg', type=str, default='zer32', help='Degree of corruption: 4 or 8 or None, if we do not use corrupted images')      
 
 if __name__=="__main__":
     
     args = parser.parse_args()
-    finetune(num_epochs=50, batch_size=32, args=args)
+    finetune(num_epochs=30, batch_size=32, args=args)
 
 
 
