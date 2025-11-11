@@ -516,14 +516,26 @@ class TestStatisticBackprop:
 
         # Save overlay images
         full_path1_ov = os.path.join(
-            self.overlay_dir, f"gr1_{len(self.group_1)}_{self.m1}_{self.args.expl}_{self.args.idx}_{self.args.exp}.png"
+            self.overlay_dir, f"gr1_{len(self.group_1)}_{self.m1}_{self.args.expl}_{idx}_{self.args.exp}.png"
         )
         full_path2_ov = os.path.join(
-            self.overlay_dir, f"gr2_{len(self.group_2)}_{self.m2}_{self.args.expl}_{self.args.idx}_{self.args.exp}.png"
+            self.overlay_dir, f"gr2_{len(self.group_2)}_{self.m2}_{self.args.expl}_{idx}_{self.args.exp}.png"
         )
         Image.fromarray(overlaid_img0).save(full_path1_ov)
         Image.fromarray(overlaid_img1).save(full_path2_ov)
         return overlaid_img0, overlaid_img1
+    
+    def visualize_samples(self, indices):
+        """
+        Visualize sample images with their attribution heatmaps.
+
+        Args:
+            n_samples: Number of samples to visualize from each group
+        """
+        # Visualaise heatmaps from group1 and group2
+        for idx in indices:
+            overlaid_img0, overlaid_img1 = self.overlay_hetmap(idx, alpha=0.5)
+            print(f"Overlay images saved for index {idx}.")
     
     def faithfulness_eval(self, random_attr=False):
         """Evaluate faithfulness of attributions using superpixel-based ranking.
@@ -923,7 +935,7 @@ class TestStatisticBackprop:
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Statistic Backpropagation")
-    parser.add_argument("--exp", type=str, default="cam-fntlstblc-uncor", help="Experiment name")
+    parser.add_argument("--exp", type=str, default="cam-fnt10-check-uncor", help="Experiment name")
     parser.add_argument(
         "--annot_path",
         type=str,
@@ -931,7 +943,7 @@ if __name__ == "__main__":
         help="Path to annotations CSV file",
     )
     parser.add_argument("--sav_gr_np", type=bool, default=False, help="If we save two groups as numpy arrays")
-    parser.add_argument("--sav_embed_np", type=bool, default=True, help="If we save embeddings as numpy arrays")
+    parser.add_argument("--sav_embed_np", type=bool, default=False, help="If we save embeddings as numpy arrays")
     parser.add_argument("--corrupted", type=str, default=False, help="Use corrupted images for group 1")
     parser.add_argument("--deg", type=str, default=None, help="Degree of corruption: 4 or 8, test-4, zer-test ")
     parser.add_argument(
@@ -960,12 +972,12 @@ if __name__ == "__main__":
         choices=("full", "test", "corr"),
         help="Test set that we want to use for getting embeddings",
     )
-    parser.add_argument("--idx", type=int, default=20, help="Index of the image for overlaying")
+    parser.add_argument("--idx", type=int, default=50, help="Index of the image for overlaying")
     parser.add_argument("--random_state", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument(
         "--model_path",
         type=str,
-        default="adni_results/ckps/model_finetun_best_12_False.pt",
+        default="adni_results/ckps/model_finetun_last_10_False.pt",
         help="Path to model checkpoint",
     )
     parser.add_argument(
@@ -974,6 +986,21 @@ if __name__ == "__main__":
         default="0.7.2.conv3",
         choices=("0.7.2.conv3", "7.2.conv3"),
         help="Target layer for GradCAM, if suppre: 7.2.conv3",
+    )
+    
+    # Here we determine if we want to visualize some samples
+    parser.add_argument(
+    "--sample_indices",
+    type=int,
+    default=[10,20,40,50,30],
+    nargs="+",
+    help="Indices of the samples to visualize."
+    )
+
+    parser.add_argument(
+    "--vis_samples",
+    action="store_true",
+    help="Whether to visualize the selected samples."
     )
 
     # Faithfulness evaluation arguments
@@ -1055,3 +1082,6 @@ if __name__ == "__main__":
 
     # Overlay heatmap on original image
     ov1, ov2 = experiment.overlay_hetmap(idx=args.idx, alpha=0.5)
+
+    if args.vis_samples:
+        experiment.visualize_samples(args.sample_indices)
