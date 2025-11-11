@@ -16,10 +16,14 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
+import copy
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from src.eval_utils import insert_grey_circle
 
 from data import *
 
@@ -109,6 +113,22 @@ def pack_and_shuffle(a0, a1, label0, label1, rng):
     p = rng.permutation(len(y))
     return X[p], y[p]
 
+def add_grey_circle_artifact_all_samples(group_np):
+        # Apply grey circle to each sample in group_2
+        circle_center_offset=-20
+        circle_radius=20 
+        circle_grey_value=128
+        print(f"Applying grey circle to each sample in group_2...")
+        for i in range(len(group_np)):
+            # Get image dimensions
+            height, width = group_np[i].shape
+            # Insert grey circle at center with specified radius and offset
+            center_y = height // 2 + circle_center_offset
+            center_x = width // 2 + circle_center_offset
+            center = (center_y, center_x)
+            group_np[i] = insert_grey_circle(group_np[i], center, circle_radius, circle_grey_value)
+        return group_np
+
 
 # Dataset has (4591) samples 
 def split_data(args):
@@ -132,15 +152,31 @@ def split_data(args):
             print('Using corrupted images with blurring with ps=32, sigma=0.8 for group 1')
             gr0_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','images', f'gr0_4591.npy')
             gr1_corrupted_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','corrupted', f'gr0_4591_blur_ps32_sigma0.8.npz')
+            gr0 = np.load(gr0_dir)
+            data = np.load(gr1_corrupted_dir)
+            gr1 = data['image']
+            min_len = min(len(gr0), len(gr1))
+            gr0, gr1 = gr0[:min_len], gr1[:min_len]
+
         if args.deg=='zer32':
             print('Using corrupted images with zeroing with ps=32 for group 1')
             gr0_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','images', f'gr0_4591.npy')
             gr1_corrupted_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','corrupted', f'gr0_4591_zero_ps32_sigma0.8.npz')
-        gr0 = np.load(gr0_dir)
-        data = np.load(gr1_corrupted_dir)
-        gr1 = data['image']
-        min_len = min(len(gr0), len(gr1))
-        gr0, gr1 = gr0[:min_len], gr1[:min_len]
+            gr0 = np.load(gr0_dir)
+            data = np.load(gr1_corrupted_dir)
+            gr1 = data['image']
+            min_len = min(len(gr0), len(gr1))
+            gr0, gr1 = gr0[:min_len], gr1[:min_len]
+
+        if args.deg=='circ':
+            gr0_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','images', f'gr0_4591.npy')
+            gr0 = np.load(gr0_dir)
+            gr1 = copy.deepcopy(gr0)
+            gr1 = add_grey_circle_artifact_all_samples(gr1)
+            min_len = min(len(gr0), len(gr1))
+            gr0, gr1 = gr0[:min_len], gr1[:min_len]
+
+        
 
     # now we make the split for train, val and test sets
     train0, val0, test0, train1, val1, test1 = split_60_20_20_per_class(gr0, gr1, rng)
@@ -180,8 +216,8 @@ def split_data(args):
 
 parser = argparse.ArgumentParser(description='Preparing datasets for finetuning!')
 parser.add_argument('--root_dir', type=str, default= '/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability')
-parser.add_argument('--corrupted', type=str, default=False, help='Use corrupted images for group 1')
-parser.add_argument('--deg', type=str, default=None, help='Degree of corruption: 4 or 8', choices=('bl32', 'zer32','None'))
+parser.add_argument('--corrupted', type=str, default=True, help='Use corrupted images for group 1')
+parser.add_argument('--deg', type=str, default='circ', help='Degree of corruption: 4 or 8', choices=('bl32', 'zer32','circ','None'))
 
 if __name__ == "__main__":
     args = parser.parse_args()
