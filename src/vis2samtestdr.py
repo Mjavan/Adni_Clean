@@ -16,8 +16,17 @@ from embeddingtest import *
 from data import *
 from utils import *
 import sys
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from src.eval_utils import insert_grey_circle, segment_image_with_circle_superpixel
+
+# Import zennit image utilities for native visualization
+try:
+    from zennit.image import imgify, palette
+except ImportError:
+    print("Warning: zennit.image module not found. Zennit visualization will not be available.")
+    imgify = None
+    palette = None
 
 
 class TestStatisticBackprop:
@@ -27,7 +36,7 @@ class TestStatisticBackprop:
         self._load_checkpoint()
         self._setup_experiment()
         self.heatmap_path = {}
-        self.heatmap_path["gr1"] =  os.path.join(
+        self.heatmap_path["gr1"] = os.path.join(
             self.heatmap_dir, f"gr1_{len(self.group_1)}_{self.m1}_{self.args.expl}_{self.args.exp}.npy"
         )
         self.heatmap_path["gr2"] = os.path.join(
@@ -89,7 +98,7 @@ class TestStatisticBackprop:
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
             root_dir = ".."
-            #test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
+            # test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
             with np.load(out_path) as f:
@@ -103,7 +112,7 @@ class TestStatisticBackprop:
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
             root_dir = ".."
-            #test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
+            # test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
             with np.load(out_path) as f:
@@ -172,8 +181,8 @@ class TestStatisticBackprop:
         self.group_1 = self._convert_to_tensor(self.group_1_np)
         self.group_2 = self._convert_to_tensor(self.group_2_np)
         # make dataloaders for each group
-        self.group_1_loader = DataLoader(self.group_1, batch_size=self.args.bs, shuffle=False, drop_last=True)
-        self.group_2_loader = DataLoader(self.group_2, batch_size=self.args.bs, shuffle=False, drop_last=True)
+        self.group_1_loader = DataLoader(self.group_1, batch_size=self.args.bs, shuffle=False, drop_last=False)
+        self.group_2_loader = DataLoader(self.group_2, batch_size=self.args.bs, shuffle=False, drop_last=False)
         # save_attributions(group_1_attr, group_2_attr,latent_dim_idx)
         self.m1 = self.group_1.shape[0]
         self.m2 = self.group_2.shape[0]
@@ -320,7 +329,7 @@ class TestStatisticBackprop:
         # Create explainer based on method
         if self.args.expl == "cam":
             # print(f'{self.args.expl} method was called with encoder:{self.encoder}')
-            explainer = GradCAM(self.encoder, target_layer=self.args.target_layer, relu=False, device=self.device)
+            explainer = GradCAM(self.encoder, target_layer=self.args.target_layer, relu=True, device=self.device)
         elif self.args.expl == "cam++":
             print(f"cam++ method was called for visualisation.")
             print(f"###########################################")
@@ -375,6 +384,8 @@ class TestStatisticBackprop:
         attributions_list = []
         embed_list = []
 
+        # Note: Since drop_last=False, n_samples should equal len(dataloader.dataset)
+        # We use the dataset size for gradient scaling to match the mean computation
         n_samples = len(dataloader.dataset)
 
         # Pre-compute gradient constant (stays the same for all batches)
@@ -391,9 +402,13 @@ class TestStatisticBackprop:
 
         is_lrp = isinstance(explainer, LRPWrapper)
 
+        # Track actual number of processed samples for validation
+        samples_processed = 0
+
         # Compute attribution maps for each group
         for images in dataloader:
             images = images.to(self.device)
+            samples_processed += images.size(0)
 
             if is_lrp:
                 # LRP approach: directly compute relevance for the projection
@@ -409,7 +424,8 @@ class TestStatisticBackprop:
 
                 # Generate final heatmap
                 attributions = explainer.generate()
-                attributions_np = attributions.squeeze().cpu().detach().numpy()
+                # Only squeeze the channel dimension (dim=1), not the batch dimension
+                attributions_np = attributions.squeeze(1).cpu().detach().numpy()
                 attributions_list.append(attributions_np)
 
             else:
@@ -461,15 +477,36 @@ class TestStatisticBackprop:
             self.group_2_loader, explainer, D=D, group_id=1, use_squared=use_squared
         )
 
+        # Validate that all samples were processed
+        if group_1_attr.shape[0] != self.args.n:
+            raise ValueError(
+                f"Group 0: Expected {self.args.n} samples but got {group_1_attr.shape[0]} attributions. "
+                f"This likely indicates samples were dropped due to batch size mismatch."
+            )
+        if group_2_attr.shape[0] != self.args.m:
+            raise ValueError(
+                f"Group 1: Expected {self.args.m} samples but got {group_2_attr.shape[0]} attributions. "
+                f"This likely indicates samples were dropped due to batch size mismatch."
+            )
+        print(f"✓ Validation passed: All {self.args.n}/{self.args.m} samples processed successfully")
+
         # compute test-statistic and p-value
         mmd = MMDTest(features_X=group_1_embed, features_Y=group_2_embed, n_perm=1000)
         test_statistic = mmd._compute_mmd(group_1_embed, group_2_embed)
         p_value = mmd._compute_p_value()
         print(f"Test statistic (MMD): {test_statistic:.4f}, p-value: {p_value:.4f}")
 
-        # save_attributions(group_1_attr, group_2_attr,latent_dim_idx)
-        full_path1 = self.heatmap_path["gr1"]
-        full_path2 = self.heatmap_path["gr2"]
+        # save_attributions(group0_attr, group1_attr,latent_dim_idx)
+        self.m1 = group_1_attr.shape[0]
+        self.m2 = group_2_attr.shape[0]
+
+        # save_attributions(group0_attr, group1_attr,latent_dim_idx)
+        full_path1 = os.path.join(
+            self.heatmap_dir, f"gr1_{len(self.group_1)}_{self.m1}_{self.args.expl}_{self.args.exp}.npy"
+        )
+        full_path2 = os.path.join(
+            self.heatmap_dir, f"gr2_{len(self.group_2)}_{self.m2}_{self.args.expl}_{self.args.exp}.npy"
+        )
 
         np.save(full_path1, group_1_attr)
         np.save(full_path2, group_2_attr)
@@ -494,13 +531,97 @@ class TestStatisticBackprop:
 
         return (group_1_attr, group_2_attr)
 
+    def create_zennit_visualization(self, image, heatmap, cmap="bwr", symmetric=True, level=1.0):
+        """
+        Create visualization using zennit's native imgify function.
+
+        Args:
+            image: Original single-channel image, can be (H, W) or (H, W, 1), values in [0, 255]
+            heatmap: Attribution heatmap, can be (H, W) or (H, W, 1)
+            cmap: Colormap name (e.g., 'bwr', 'seismic', 'coolwarm', 'hot')
+            symmetric: Whether to use symmetric normalization (zero-centered)
+            level: Color intensity level
+
+        Returns:
+            image_pil: Original image as PIL Image (grayscale)
+            overlay_pil: Overlaid image as PIL Image (RGB)
+        """
+        if imgify is None:
+            raise ImportError("zennit.image module is not available. Please install zennit.")
+
+        # Ensure image is 2D (squeeze any single-channel dimensions)
+        if image.ndim == 3 and image.shape[-1] == 1:
+            image = image.squeeze(-1)
+        elif image.ndim == 3 and image.shape[0] == 1:
+            image = image.squeeze(0)
+
+        # Ensure heatmap is 2D (squeeze any single-channel dimensions)
+        if heatmap.ndim == 3 and heatmap.shape[-1] == 1:
+            heatmap = heatmap.squeeze(-1)
+        elif heatmap.ndim == 3 and heatmap.shape[0] == 1:
+            heatmap = heatmap.squeeze(0)
+
+        # Create PIL image for the original grayscale image
+        image_pil = Image.fromarray(image.astype(np.uint8))
+
+        # Resize heatmap to match image dimensions if needed
+        if heatmap.shape != image.shape:
+            heatmap_resized = np.array(
+                Image.fromarray(heatmap).resize((image.shape[1], image.shape[0]), Image.BILINEAR)
+            )
+        else:
+            heatmap_resized = heatmap
+
+        # Use zennit's imgify to create a colored heatmap
+        # This returns a PIL Image (may be in 'P' palettized mode or 'RGB' mode)
+        heatmap_colored = imgify(heatmap_resized, cmap=cmap, symmetric=symmetric, level=level)
+
+        # Ensure the heatmap is in RGB mode before converting to numpy
+        if heatmap_colored.mode != "RGB":
+            heatmap_colored = heatmap_colored.convert("RGB")
+
+        # Convert original single-channel image to RGB for blending
+        # Stack the grayscale image 3 times to create RGB
+        image_rgb = np.stack([image] * 3, axis=-1).astype(np.float32)
+
+        # Convert PIL image to numpy array for blending
+        heatmap_array = np.array(heatmap_colored).astype(np.float32)
+
+        # Blend the images (50% overlay by default)
+        alpha = 0.5
+        overlaid = (alpha * heatmap_array + (1 - alpha) * image_rgb).astype(np.uint8)
+
+        overlay_pil = Image.fromarray(overlaid, mode="RGB")
+
+        return image_pil, overlay_pil
+
     def overlay_hetmap(self, idx, alpha=0.5):
-        """Overlay heatmap on the original image."""
-        # Load original image
+        """
+        Overlay heatmap on the original image using either current or zennit method.
+
+        Args:
+            idx: Index of the image to overlay
+            alpha: Alpha value for blending (only used for 'current' method)
+
+        Returns:
+            overlaid_img0: Overlaid image for group 0
+            overlaid_img1: Overlaid image for group 1
+        """
+        # Load original image and ensure it's 2D (squeeze any single-channel dimensions)
         if idx < len(self.group_1):
             img0 = self.group_1_np[idx]
+            # Ensure single-channel images are 2D
+            if img0.ndim == 3 and img0.shape[-1] == 1:
+                img0 = img0.squeeze(-1)
+            elif img0.ndim == 3 and img0.shape[0] == 1:
+                img0 = img0.squeeze(0)
         if idx < len(self.group_2):
             img1 = self.group_2_np[idx]
+            # Ensure single-channel images are 2D
+            if img1.ndim == 3 and img1.shape[-1] == 1:
+                img1 = img1.squeeze(-1)
+            elif img1.ndim == 3 and img1.shape[0] == 1:
+                img1 = img1.squeeze(0)
 
         # Load heatmap
         full_path1 = self.heatmap_path["gr1"]
@@ -513,6 +634,44 @@ class TestStatisticBackprop:
         # Overlay heatmap
         _, overlaid_img0 = save_cam_with_alpha(img0, gcam_1, alpha=alpha)
         _, overlaid_img1 = save_cam_with_alpha(img1, gcam_2, alpha=alpha)
+        gcam0 = group_1_attr[idx]
+        gcam1 = group_2_attr[idx]
+
+        # Choose visualization method
+        if self.args.vis_method == "zennit":
+            print(
+                f"Using zennit visualization with cmap={self.args.zennit_cmap}, "
+                f"symmetric={self.args.zennit_symmetric}, level={self.args.zennit_level}"
+            )
+
+            # Use zennit's imgify for visualization
+            _, overlay_pil0 = self.create_zennit_visualization(
+                img0,
+                gcam0,
+                cmap=self.args.zennit_cmap,
+                symmetric=self.args.zennit_symmetric,
+                level=self.args.zennit_level,
+            )
+            _, overlay_pil1 = self.create_zennit_visualization(
+                img1,
+                gcam1,
+                cmap=self.args.zennit_cmap,
+                symmetric=self.args.zennit_symmetric,
+                level=self.args.zennit_level,
+            )
+
+            # Convert PIL to numpy for consistency with original return type
+            overlaid_img0 = np.array(overlay_pil0)
+            overlaid_img1 = np.array(overlay_pil1)
+
+            # Save with zennit suffix
+            suffix = f"_{self.args.zennit_cmap}"
+        else:
+            # Use current matplotlib-based visualization
+            print(f"Using current visualization with alpha={alpha}")
+            _, overlaid_img0 = save_cam_with_alpha(img0, gcam0, alpha=alpha)
+            _, overlaid_img1 = save_cam_with_alpha(img1, gcam1, alpha=alpha)
+            suffix = ""
 
         # Save overlay images
         full_path1_ov = os.path.join(
@@ -523,20 +682,11 @@ class TestStatisticBackprop:
         )
         Image.fromarray(overlaid_img0).save(full_path1_ov)
         Image.fromarray(overlaid_img1).save(full_path2_ov)
-        return overlaid_img0, overlaid_img1
-    
-    def visualize_samples(self, indices):
-        """
-        Visualize sample images with their attribution heatmaps.
 
-        Args:
-            n_samples: Indices from samples that we want to visualize from each group
-        """
-        # Visualaise heatmaps from group1 and group2
-        for idx in indices:
-            overlaid_img0, overlaid_img1 = self.overlay_hetmap(idx, alpha=0.5)
-            print(f"Overlay images saved for index {idx}.")
-    
+        print(f"Saved overlays to:\n  {full_path1_ov}\n  {full_path2_ov}")
+
+        return overlaid_img0, overlaid_img1
+
     def faithfulness_eval(self, random_attr=False):
         """Evaluate faithfulness of attributions using superpixel-based ranking.
 
@@ -565,10 +715,10 @@ class TestStatisticBackprop:
             print(f"Loading heatmaps from:")
             print(f"  Group 1: {self.heatmap_path['gr2']}")
 
-            if not os.path.exists(self.heatmap_path['gr2']):
+            if not os.path.exists(self.heatmap_path["gr2"]):
                 raise FileNotFoundError(f"Heatmap file not found: {self.heatmap_path['gr2']}")
 
-            group_2_heatmaps = np.load(self.heatmap_path['gr2'])  # Shape: (m_samples, height, width)
+            group_2_heatmaps = np.load(self.heatmap_path["gr2"])  # Shape: (m_samples, height, width)
 
             print(f"Loaded heatmaps - Group 1: {group_2_heatmaps.shape}")
             print("=" * 60)
@@ -578,12 +728,16 @@ class TestStatisticBackprop:
             ranking_list, superpixel_masks = self._rank_superpixels_by_attr_sum(self.group_2_np, group_2_heatmaps)
         else:
             print("\nRandomly shuffling superpixel rankings for control experiment...")
-            ranking_list, superpixel_masks = self._rank_superpixels_by_attr_sum(self.group_2_np, np.random.rand(*self.group_2_np.shape))
+            ranking_list, superpixel_masks = self._rank_superpixels_by_attr_sum(
+                self.group_2_np, np.random.rand(*self.group_2_np.shape)
+            )
             random.shuffle(ranking_list)
 
         # Step 2: Progressively replace superpixels and compute statistics
         print("\nStep 2: Progressively replacing superpixels and computing statistics...")
-        results = self._progressive_replacement_analysis(self.group_2_np, self.group_1_np, ranking_list, superpixel_masks)
+        results = self._progressive_replacement_analysis(
+            self.group_2_np, self.group_1_np, ranking_list, superpixel_masks
+        )
 
         return results
 
@@ -611,27 +765,29 @@ class TestStatisticBackprop:
             superpixel_labels, _ = segment_image_with_circle_superpixel(
                 image,
                 center=(center_y, center_x),
-                radius=self.args.circle_radius * 1.1, # increase radius slightly to cover full circle
+                radius=self.args.circle_radius * 1.1,  # increase radius slightly to cover full circle
                 n_segments=self.args.n_superpixels,
                 compactness=self.args.superpixel_compactness,
-                visualize=False
+                visualize=False,
             )
 
             # For each superpixel, calculate the sum of attributions
             unique_segments = np.unique(superpixel_labels)
             for segment_id in unique_segments:
-                segment_mask = (superpixel_labels == segment_id)
+                segment_mask = superpixel_labels == segment_id
                 attribution_sum = np.sum(heatmap[segment_mask])
 
                 # Store mask for later use
                 superpixel_masks[(img_idx, int(segment_id))] = segment_mask
 
-                all_segments.append({
-                    'image_idx': img_idx,
-                    'segment_id': int(segment_id),
-                    'attribution_sum': float(attribution_sum),
-                    'n_pixels': int(np.sum(segment_mask))
-                })
+                all_segments.append(
+                    {
+                        "image_idx": img_idx,
+                        "segment_id": int(segment_id),
+                        "attribution_sum": float(attribution_sum),
+                        "n_pixels": int(np.sum(segment_mask)),
+                    }
+                )
 
             if (img_idx + 1) % 10 == 0:
                 print(f"  Processed {img_idx + 1}/{len(images)} images")
@@ -639,11 +795,11 @@ class TestStatisticBackprop:
         print(f"Group 1 complete: {len(all_segments)} segments total")
 
         # Sort all segments by attribution sum (descending)
-        ranking_list = sorted(all_segments, key=lambda x: x['attribution_sum'], reverse=True)
+        ranking_list = sorted(all_segments, key=lambda x: x["attribution_sum"], reverse=True)
 
         # Add rank to each segment
         for rank, segment in enumerate(ranking_list, start=1):
-            segment['rank'] = rank
+            segment["rank"] = rank
 
         return ranking_list, superpixel_masks
 
@@ -675,9 +831,15 @@ class TestStatisticBackprop:
         group_modified_tensor = self._convert_to_tensor(group_modified)
 
         # Create dataloaders
-        group_to_replace_loader = DataLoader(group_to_replace_np_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
-        group_modified_loader = DataLoader(group_modified_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
-        group_to_replace_embed, group_modified_embed = self._retrieve_embeddings(group_to_replace_loader, group_modified_loader)
+        group_to_replace_loader = DataLoader(
+            group_to_replace_np_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False
+        )
+        group_modified_loader = DataLoader(
+            group_modified_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False
+        )
+        group_to_replace_embed, group_modified_embed = self._retrieve_embeddings(
+            group_to_replace_loader, group_modified_loader
+        )
 
         group_to_replace_embed = np.vstack(group_to_replace_embed)
         group_modified_embed = np.vstack(group_modified_embed)
@@ -696,15 +858,15 @@ class TestStatisticBackprop:
 
         for i in range(replacement_steps):
             segment = ranking_list[i]
-            img_idx = segment['image_idx']
-            segment_id = segment['segment_id']
+            img_idx = segment["image_idx"]
+            segment_id = segment["segment_id"]
 
             # Get the mask for this superpixel
             mask = superpixel_masks[(img_idx, segment_id)]
 
             # Replace pixels in group_2_modified with corresponding pixels from group_1
             group_modified[img_idx][mask] = group_to_replace_np[img_idx][mask]
-            step_embeddings = self.encoder(self._convert_to_tensor(np.expand_dims(group_modified[img_idx],0)))
+            step_embeddings = self.encoder(self._convert_to_tensor(np.expand_dims(group_modified[img_idx], 0)))
             step_embeddings = step_embeddings.view(step_embeddings.size()[0], -1)
             group_modified_embed[img_idx] = step_embeddings.detach().cpu().numpy()
 
@@ -717,10 +879,10 @@ class TestStatisticBackprop:
                 print(f"  After {i+1} replacements: test_stat={test_stat:.4f}, p_value={p_val:.4f}")
 
         results = {
-            'ranking_list': ranking_list,
-            'test_statistics': test_statistics,
-            'p_values': p_values,
-            'n_replaced': n_replaced
+            "ranking_list": ranking_list,
+            "test_statistics": test_statistics,
+            "p_values": p_values,
+            "n_replaced": n_replaced,
         }
 
         return results
@@ -756,7 +918,6 @@ class TestStatisticBackprop:
         group_1_embed = []
         group_2_embed = []
 
-
         with torch.no_grad():
             for images in group_1_loader:
                 images = images.to(self.device)
@@ -771,7 +932,6 @@ class TestStatisticBackprop:
                 group_2_embed.append(embeddings.cpu().numpy())
 
         return group_1_embed, group_2_embed
-
 
     def max_sensitivity_evaluation(self, n_samples=50, lower_bound=-0.05, upper_bound=0.05, norm_ord=2):
         """Evaluate max-sensitivity of attributions.
@@ -815,7 +975,9 @@ class TestStatisticBackprop:
         group_2_embed_original = np.vstack(group_2_embed_original)
 
         # Compute baseline test statistic and p-value
-        original_test_stat, original_p_value = self._compute_test_statistic(group_1_embed_original, group_2_embed_original)
+        original_test_stat, original_p_value = self._compute_test_statistic(
+            group_1_embed_original, group_2_embed_original
+        )
         print(f"Baseline test_stat: {original_test_stat:.4f}, p_value: {original_p_value:.4f}")
 
         # Compute baseline attributions
@@ -846,15 +1008,23 @@ class TestStatisticBackprop:
             noise_2 = torch.FloatTensor(group_2_tensor.shape).uniform_(lower_bound, upper_bound)
             group_2_perturbed_tensor = group_2_tensor + noise_2.to(self.device)
 
-            group_1_perturbed_loader = DataLoader(group_1_perturbed_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
-            group_2_perturbed_loader = DataLoader(group_2_perturbed_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False)
+            group_1_perturbed_loader = DataLoader(
+                group_1_perturbed_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False
+            )
+            group_2_perturbed_loader = DataLoader(
+                group_2_perturbed_tensor, batch_size=self.args.bs, shuffle=False, drop_last=False
+            )
 
-            group_1_embed_perturbed, group_2_embed_perturbed = self._retrieve_embeddings(group_1_perturbed_loader, group_2_perturbed_loader)
+            group_1_embed_perturbed, group_2_embed_perturbed = self._retrieve_embeddings(
+                group_1_perturbed_loader, group_2_perturbed_loader
+            )
             group_1_embed_perturbed = np.vstack(group_1_embed_perturbed)
             group_2_embed_perturbed = np.vstack(group_2_embed_perturbed)
 
             # Compute perturbed test statistic and p-value
-            perturbed_test_stat, perturbed_p_value = self._compute_test_statistic(group_1_embed_perturbed, group_2_embed_perturbed)
+            perturbed_test_stat, perturbed_p_value = self._compute_test_statistic(
+                group_1_embed_perturbed, group_2_embed_perturbed
+            )
 
             # Compute D from perturbed embeddings
             group_1_mean_perturbed = torch.tensor(group_1_embed_perturbed.mean(axis=0)).to(self.device)
@@ -883,9 +1053,11 @@ class TestStatisticBackprop:
             attribution_sensitivities_group2.append(attr_diff_group2)
 
             if (iteration + 1) % 10 == 0 or iteration == 0:
-                print(f"  Iteration {iteration + 1}/{n_samples}: "
-                      f"test_stat_diff={test_stat_diff:.4f}, p_value_diff={p_value_diff:.4f}, "
-                      f"attr_diff_g1={attr_diff_group1:.4f}, attr_diff_g2={attr_diff_group2:.4f}")
+                print(
+                    f"  Iteration {iteration + 1}/{n_samples}: "
+                    f"test_stat_diff={test_stat_diff:.4f}, p_value_diff={p_value_diff:.4f}, "
+                    f"attr_diff_g1={attr_diff_group1:.4f}, attr_diff_g2={attr_diff_group2:.4f}"
+                )
 
         # Compute statistics
         mean_test_stat_sensitivity = np.mean(test_stat_sensitivities)
@@ -905,34 +1077,33 @@ class TestStatisticBackprop:
         max_attr_sensitivity_group2 = np.max(attribution_sensitivities_group2)
 
         results = {
-            'test_stat_sensitivities': test_stat_sensitivities,
-            'p_value_sensitivities': p_value_sensitivities,
-            'attribution_sensitivities_group1': attribution_sensitivities_group1,
-            'attribution_sensitivities_group2': attribution_sensitivities_group2,
-            'mean_test_stat_sensitivity': float(mean_test_stat_sensitivity),
-            'std_test_stat_sensitivity': float(std_test_stat_sensitivity),
-            'max_test_stat_sensitivity': float(max_test_stat_sensitivity),
-            'mean_p_value_sensitivity': float(mean_p_value_sensitivity),
-            'std_p_value_sensitivity': float(std_p_value_sensitivity),
-            'max_p_value_sensitivity': float(max_p_value_sensitivity),
-            'mean_attr_sensitivity_group1': float(mean_attr_sensitivity_group1),
-            'std_attr_sensitivity_group1': float(std_attr_sensitivity_group1),
-            'max_attr_sensitivity_group1': float(max_attr_sensitivity_group1),
-            'mean_attr_sensitivity_group2': float(mean_attr_sensitivity_group2),
-            'std_attr_sensitivity_group2': float(std_attr_sensitivity_group2),
-            'max_attr_sensitivity_group2': float(max_attr_sensitivity_group2),
-            'n_samples': n_samples,
-            'lower_bound': lower_bound,
-            'upper_bound': upper_bound,
-            'norm_ord': norm_ord,
-            'original_test_stat': float(original_test_stat),
-            'original_p_value': float(original_p_value)
+            "test_stat_sensitivities": test_stat_sensitivities,
+            "p_value_sensitivities": p_value_sensitivities,
+            "attribution_sensitivities_group1": attribution_sensitivities_group1,
+            "attribution_sensitivities_group2": attribution_sensitivities_group2,
+            "mean_test_stat_sensitivity": float(mean_test_stat_sensitivity),
+            "std_test_stat_sensitivity": float(std_test_stat_sensitivity),
+            "max_test_stat_sensitivity": float(max_test_stat_sensitivity),
+            "mean_p_value_sensitivity": float(mean_p_value_sensitivity),
+            "std_p_value_sensitivity": float(std_p_value_sensitivity),
+            "max_p_value_sensitivity": float(max_p_value_sensitivity),
+            "mean_attr_sensitivity_group1": float(mean_attr_sensitivity_group1),
+            "std_attr_sensitivity_group1": float(std_attr_sensitivity_group1),
+            "max_attr_sensitivity_group1": float(max_attr_sensitivity_group1),
+            "mean_attr_sensitivity_group2": float(mean_attr_sensitivity_group2),
+            "std_attr_sensitivity_group2": float(std_attr_sensitivity_group2),
+            "max_attr_sensitivity_group2": float(max_attr_sensitivity_group2),
+            "n_samples": n_samples,
+            "lower_bound": lower_bound,
+            "upper_bound": upper_bound,
+            "norm_ord": norm_ord,
+            "original_test_stat": float(original_test_stat),
+            "original_p_value": float(original_p_value),
         }
 
-
         return results
-    
-    
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Statistic Backpropagation")
     parser.add_argument("--exp", type=str, default="cam-fnt10-check-uncor", help="Experiment name")
@@ -969,7 +1140,7 @@ if __name__ == "__main__":
         "--dst",
         type=str,
         default="test",
-        choices=("full", "test", "corr"),
+        choices=("full", "test", "corr", "faithfulness_eval"),
         help="Test set that we want to use for getting embeddings",
     )
     parser.add_argument("--idx", type=int, default=50, help="Index of the image for overlaying")
@@ -987,21 +1158,17 @@ if __name__ == "__main__":
         choices=("0.7.2.conv3", "7.2.conv3"),
         help="Target layer for GradCAM, if suppre: 7.2.conv3",
     )
-    
+
     # Here we determine if we want to visualize some samples
     parser.add_argument(
-    "--sample_indices",
-    type=int,
-    default=[10,20,40,50,30],
-    nargs="+",
-    help="Indices of the samples to visualize."
+        "--sample_indices",
+        type=int,
+        default=[10, 20, 40, 50, 30],
+        nargs="+",
+        help="Indices of the samples to visualize.",
     )
 
-    parser.add_argument(
-    "--vis_samples",
-    action="store_true",
-    help="Whether to visualize the selected samples."
-    )
+    parser.add_argument("--vis_samples", action="store_true", help="Whether to visualize the selected samples.")
 
     # Faithfulness evaluation arguments
     parser.add_argument(
@@ -1028,7 +1195,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--circle_center_offset",
         type=int,
-        default=0,
+        default=-20,
         required=False,
         help="Offset for circle center from image center, applied to both x and y (default: 0)",
     )
@@ -1045,7 +1212,7 @@ if __name__ == "__main__":
         "--lrp_composite",
         type=str,
         default="epsilon_plus_flat",
-        choices=["epsilon_plus_flat", "epsilon_gamma_box", "epsilon_alpha2beta1"],
+        choices=["epsilon_plus", "epsilon_plus_flat", "epsilon_gamma_box", "epsilon_alpha2beta1"],
         help="LRP composite type for rule selection",
     )
     parser.add_argument(
@@ -1073,6 +1240,32 @@ if __name__ == "__main__":
         help="Upper bound for input normalization in ZBox rule",
     )
 
+    # Visualization arguments
+    parser.add_argument(
+        "--vis_method",
+        type=str,
+        default="current",
+        choices=["current", "zennit"],
+        help="Visualization method: 'current' uses matplotlib jet colormap overlay, 'zennit' uses zennit's imgify with native colormaps",
+    )
+    parser.add_argument(
+        "--zennit_cmap",
+        type=str,
+        default="bwr",
+        help="Colormap for zennit visualization (e.g., 'bwr', 'seismic', 'coolwarm', 'hot')",
+    )
+    parser.add_argument(
+        "--zennit_symmetric",
+        action="store_true",
+        help="Use symmetric (zero-centered) normalization for zennit visualization",
+    )
+    parser.add_argument(
+        "--zennit_level",
+        type=float,
+        default=1.0,
+        help="Color intensity level for zennit visualization (default: 1.0)",
+    )
+
     args = parser.parse_args()
 
     experiment = TestStatisticBackprop(args)
@@ -1080,8 +1273,6 @@ if __name__ == "__main__":
     # Run experiment
     group_1_attr, group_2_attr = experiment.run()
 
-    # Overlay heatmap on original image
-    ov1, ov2 = experiment.overlay_hetmap(idx=args.idx, alpha=0.5)
-
-    if args.vis_samples:
-        experiment.visualize_samples(args.sample_indices)
+    # Overlay heatmap on original images in a loop
+    for idx in range(args.idx + 1):
+        ov1, ov2 = experiment.overlay_hetmap(idx=idx, alpha=0.5)

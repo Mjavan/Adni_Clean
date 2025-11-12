@@ -95,7 +95,7 @@ class GradCAM(ProbBase):
             cam = -cam
 
         # ReLU or abs
-        cam = F.relu(cam) if self.relu else cam.abs()
+        cam = F.relu(cam) if self.relu else cam  # .abs()
 
         # Upsample to input size
         cam = F.interpolate(cam, (self.image_size, self.image_size), mode="bilinear", align_corners=False)

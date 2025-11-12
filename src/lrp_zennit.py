@@ -113,7 +113,10 @@ class LRPExplainer:
                 gamma=self.lrp_gamma,
                 canonizers=canonizers,
             )
+        elif self.composite_type == "epsilon_plus":
+            composite = EpsilonPlus(epsilon=self.lrp_epsilon, canonizers=canonizers)
         elif self.composite_type == "epsilon_plus_flat":
+            print(f"epsilon: {self.lrp_epsilon}")
             composite = EpsilonPlusFlat(epsilon=self.lrp_epsilon, canonizers=canonizers)
         elif self.composite_type == "epsilon_alpha2beta1":
             composite = EpsilonAlpha2Beta1(epsilon=self.lrp_epsilon, canonizers=canonizers)
@@ -169,7 +172,6 @@ class LRPExplainer:
         # Use zennit's Gradient attributor with LRP rules
         attributor = Gradient(model=model_with_projection, composite=composite)
 
-        # Process entire batch at once (much more efficient!)
         with attributor:
             # Forward pass - output is [batch_size] with one scalar per image
             output = model_with_projection(x)
@@ -204,7 +206,7 @@ class LRPExplainer:
         if self.relu:
             heatmap = F.relu(heatmap)
         else:
-            heatmap = heatmap.abs()
+            heatmap = heatmap  # .abs()
 
         # Ensure correct size (upsample/downsample if needed)
         if heatmap.size(-1) != self.image_size:
