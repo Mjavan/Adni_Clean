@@ -188,7 +188,9 @@ class TestStatisticBackprop:
             # checkpoint_dir = root_dir / 'adni_results' / 'ckps' / 'model_finetun_last_2_False.pt'
             checkpoint_dir = os.path.join(root_dir,args.model_path)
             print(f'ckp_dir:{checkpoint_dir}')
-            state_dict = torch.load(checkpoint_dir, map_location=self.device)   
+            state_dict = torch.load(checkpoint_dir, map_location=self.device)  
+            print('model was uploaded from epoch:{}'.format(state_dict['epoch']))
+            print('model best_val_loss:{}'.format(state_dict['best_val_loss'])) 
             net = ResNet50Predictor(embed_dim=2048, dropout=0.5).to(self.device)
             model = finetune_net(net, num_classes=2).to(self.device)
             model.load_state_dict(state_dict['model_state'])
@@ -379,7 +381,7 @@ class TestStatisticBackprop:
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test Statistic Backpropagation')
-    parser.add_argument('--exp', type=str, default='cam-fnt10-uncor', help='Experiment name')
+    parser.add_argument('--exp', type=str, default='cam-fnt10-org-uncor', help='Experiment name')
     parser.add_argument('--annot_path', type=str, default='/sc/projects/sci-lippert/chair/adni_t1_mprage/T1_3T_coronal_slice/T1_3T_coronal_mni_linear_hippo_resolution256/group_by_hippocampus/adni_T1_3T_linear_annotation.csv',
                          help='Path to annotations CSV file')
     parser.add_argument('--sav_gr_np', type=bool, default=False, help='If we save two groups as numpy arrays')
@@ -392,7 +394,7 @@ if __name__ == "__main__":
     parser.add_argument('--m', type=int, default=100, help='Number of samples in group 1')
     parser.add_argument('--bs', type=int, default=100, help='Batch size for DataLoader')
     parser.add_argument('--dst', type=str, default='test',choices=('full','test','corr') ,help='Test set that we want to use for getting embeddings')
-    parser.add_argument('--idx', type=int, default=0, help='Index of the image for overlaying')
+    parser.add_argument('--idx', type=int, default=50, help='Index of the image for overlaying')
     parser.add_argument('--random_state', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--model_path', type=str, default='adni_results/ckps/model_finetun_last_10_False.pt', help='Path to model checkpoint')
     parser.add_argument('--target_layer', type=str, default='0.7.2.conv3',choices=('0.7.2.conv3','7.2.conv3'), help='Target layer for GradCAM, if suppre: 7.2.conv3')
@@ -403,8 +405,12 @@ if __name__ == "__main__":
     # Run experiment
     group0_attr, group1_attr = experiment.run()
 
-    # Overlay heatmap on original image
-    ov1, ov2 = experiment.overlay_hetmap(idx=args.idx, alpha=0.5)
+    # Overlay heatmap on original images in a loop
+    for idx in range(args.idx + 1):
+        print(f'overlay of image:{idx} was done.')
+        ov1, ov2 = experiment.overlay_hetmap(idx=idx, alpha=0.5)
+
+
 
 
 
