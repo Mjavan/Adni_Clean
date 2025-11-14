@@ -29,6 +29,36 @@ except ImportError:
     palette = None
 
 
+def normalise_by_max(arr, norm_axis=None, check_warning=False):
+    """
+    Normalizes array by dividing by the maximum absolute value.
+
+    Args:
+        arr: Input array to normalize
+        norm_axis: Axis or axes along which to normalize. If None, uses global max.
+        check_warning: If True, warns when all values are zero
+
+    Returns:
+        Normalized array
+    """
+    arr = np.array(arr)
+
+    if norm_axis is None:
+        # Global normalization
+        max_val = np.abs(arr).max()
+        if max_val == 0:
+            if check_warning:
+                warnings.warn("All values are zero, returning original array")
+            return arr
+        return arr / max_val
+    else:
+        # Normalize along specified axis
+        max_vals = np.abs(arr).max(axis=norm_axis, keepdims=True)
+        # Avoid division by zero
+        max_vals = np.where(max_vals == 0, 1, max_vals)
+        return arr / max_vals
+
+
 class TestStatisticBackprop:
     def __init__(self, args):
         self.args = args
@@ -97,7 +127,7 @@ class TestStatisticBackprop:
         if self.args.dst == "test":
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-            root_dir = ".."
+            root_dir = "."
             # test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
@@ -111,7 +141,7 @@ class TestStatisticBackprop:
         elif self.args.dst == "faithfulness_eval":
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-            root_dir = ".."
+            root_dir = "."
             # test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
@@ -209,7 +239,7 @@ class TestStatisticBackprop:
         if self.args.ckp == "simclr":
             print("Using self-supervised pre-trained model")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = ".."
+            base_path = "."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "self_supervised" / "simclr" / "simclr_ckpts"
             pre_exp = 2
@@ -229,7 +259,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt":
             print("Using fine-tuned model on two groups of data without corruption (False)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = ".."
+            base_path = "."
             root_dir = Path(base_path)
             # checkpoint_dir = root_dir / 'adni_results' / 'ckps' / 'model_finetun_last_2_False.pt'
             checkpoint_dir = os.path.join(root_dir, self.args.model_path)
@@ -248,7 +278,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt_bl":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = ".."
+            base_path = "."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "adni_results" / "ckps" / "model_finetun_last_7_True.pt"
             state_dict = torch.load(checkpoint_dir, map_location=self.device)
@@ -265,7 +295,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt_zer":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = ".."
+            base_path = "."
             root_dir = Path(base_path)
             checkpoint_dir = os.path.join(root_dir, self.args.model_path)
             print(f"ckp_dir:{checkpoint_dir}")
@@ -282,7 +312,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "suppr":
             print("Using supervised pre-trained model without fine-tuning")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = ".."
+            base_path = "."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "adni_results" / "ckps" / "resnet50_ukb_age_predict_epoch13.pth"
             weights = torch.load(checkpoint_dir, map_location=self.device)
@@ -804,20 +834,7 @@ class TestStatisticBackprop:
         return ranking_list, superpixel_masks
 
     def _progressive_replacement_analysis(self, group_np, group_to_replace_np, ranking_list, superpixel_masks):
-        """Progressively replace top-ranked superpixels and compute statistics.
-
-        Parameters:
-        -----------
-        ranking_list : list of dict
-            Ranked segments
-        superpixel_masks : dict
-            Dictionary mapping (image_idx, segment_id) to boolean mask
-
-        Returns:
-        --------
-        results : dict
-            Analysis results with statistics for each replacement step
-        """
+        """Progressively replace top-ranked superpixels and compute statistics."""
         # Make a copy of group_2 that we'll progressively modify
         group_modified = group_np.copy()
 
@@ -866,12 +883,16 @@ class TestStatisticBackprop:
 
             # Replace pixels in group_2_modified with corresponding pixels from group_1
             group_modified[img_idx][mask] = group_to_replace_np[img_idx][mask]
-            step_embeddings = self.encoder(self._convert_to_tensor(np.expand_dims(group_modified[img_idx], 0)))
-            step_embeddings = step_embeddings.view(step_embeddings.size()[0], -1)
-            group_modified_embed[img_idx] = step_embeddings.detach().cpu().numpy()
+
+            # Recompute embedding for the modified image
+            with torch.no_grad():
+                step_embeddings = self.encoder(self._convert_to_tensor(np.expand_dims(group_modified[img_idx], 0)).to(self.device))
+                step_embeddings = step_embeddings.view(step_embeddings.size()[0], -1)
+                group_modified_embed[img_idx] = step_embeddings.squeeze(0).detach().cpu().numpy()
 
             # Compute statistics after this replacement
             if (i + 1) % 10 == 0 or i < 10 or i == replacement_steps - 1:
+                print("All equal:", np.array_equal(group_modified, group_to_replace_np))
                 test_stat, p_val = self._compute_test_statistic(group_to_replace_embed, group_modified_embed)
                 test_statistics.append(float(test_stat))
                 p_values.append(float(p_val))
@@ -989,11 +1010,15 @@ class TestStatisticBackprop:
         group_2_attr_original, _ = self.process_attributions(
             group_2_loader, explainer, D=D, group_id=1, use_squared=True
         )
+
+        # Normalize attributions by dividing by maximum absolute value per sample
+        group_1_attr_original_norm = np.array([normalise_by_max(attr) for attr in group_1_attr_original])
+        group_2_attr_original_norm = np.array([normalise_by_max(attr) for attr in group_2_attr_original])
         print("=" * 60)
 
-        # Storage for sensitivities
-        test_stat_sensitivities = []
-        p_value_sensitivities = []
+        # Storage for perturbed values and attribution sensitivities
+        test_stat_values = []
+        p_value_values = []
         attribution_sensitivities_group1 = []
         attribution_sensitivities_group2 = []
 
@@ -1039,34 +1064,43 @@ class TestStatisticBackprop:
                 group_2_perturbed_loader, explainer, D=D_perturbed, group_id=1, use_squared=True
             )
 
-            # Compute sensitivity for this iteration
-            test_stat_diff = abs(original_test_stat - perturbed_test_stat)
-            p_value_diff = abs(original_p_value - perturbed_p_value)
+            # Normalize perturbed attributions by dividing by maximum absolute value per sample
+            group_1_attr_perturbed_norm = np.array([normalise_by_max(attr) for attr in group_1_attr_perturbed])
+            group_2_attr_perturbed_norm = np.array([normalise_by_max(attr) for attr in group_2_attr_perturbed])
 
-            # Compute MSE (Mean Squared Error) for attribution differences
-            attr_diff_group1 = np.mean((group_1_attr_original - group_1_attr_perturbed) ** 2)
-            attr_diff_group2 = np.mean((group_2_attr_original - group_2_attr_perturbed) ** 2)
+            # Store perturbed test statistic and p-value
+            test_stat_values.append(perturbed_test_stat)
+            p_value_values.append(perturbed_p_value)
 
-            test_stat_sensitivities.append(test_stat_diff)
-            p_value_sensitivities.append(p_value_diff)
+            # Compute attribution sensitivity using Quantus approach with Euclidean norm
+            # sensitivity = norm(a_original - a_perturbed) / norm(a_original)
+            # Note: Using ord=2 (Euclidean) for flattened arrays, equivalent to Frobenius for matrices
+            diff_g1 = group_1_attr_original_norm - group_1_attr_perturbed_norm
+            numerator_g1 = np.linalg.norm(diff_g1.flatten(), ord=norm_ord)
+            denominator_g1 = np.linalg.norm(group_1_attr_original_norm.flatten(), ord=norm_ord)
+            attr_diff_group1 = numerator_g1 / (denominator_g1 + 1e-10)
+
+            diff_g2 = group_2_attr_original_norm - group_2_attr_perturbed_norm
+            numerator_g2 = np.linalg.norm(diff_g2.flatten(), ord=norm_ord)
+            denominator_g2 = np.linalg.norm(group_2_attr_original_norm.flatten(), ord=norm_ord)
+            attr_diff_group2 = numerator_g2 / (denominator_g2 + 1e-10)
+
             attribution_sensitivities_group1.append(attr_diff_group1)
             attribution_sensitivities_group2.append(attr_diff_group2)
 
             if (iteration + 1) % 10 == 0 or iteration == 0:
-                print(
-                    f"  Iteration {iteration + 1}/{n_samples}: "
-                    f"test_stat_diff={test_stat_diff:.4f}, p_value_diff={p_value_diff:.4f}, "
-                    f"attr_diff_g1={attr_diff_group1:.4f}, attr_diff_g2={attr_diff_group2:.4f}"
-                )
+                print(f"  Iteration {iteration + 1}/{n_samples}: "
+                      f"test_stat={perturbed_test_stat:.4f}, p_value={perturbed_p_value:.4f}, "
+                      f"attr_sens_g1={attr_diff_group1:.4f}, attr_sens_g2={attr_diff_group2:.4f}")
 
-        # Compute statistics
-        mean_test_stat_sensitivity = np.mean(test_stat_sensitivities)
-        std_test_stat_sensitivity = np.std(test_stat_sensitivities)
-        max_test_stat_sensitivity = np.max(test_stat_sensitivities)
+        # Compute robustness coefficient (std/mean) for test statistic and p-value
+        test_stat_mean = np.mean(test_stat_values)
+        test_stat_std = np.std(test_stat_values)
+        test_stat_robustness_coef = test_stat_std / (test_stat_mean + 1e-10)
 
-        mean_p_value_sensitivity = np.mean(p_value_sensitivities)
-        std_p_value_sensitivity = np.std(p_value_sensitivities)
-        max_p_value_sensitivity = np.max(p_value_sensitivities)
+        p_value_mean = np.mean(p_value_values)
+        p_value_std = np.std(p_value_values)
+        p_value_robustness_coef = p_value_std / (p_value_mean + 1e-10)
 
         mean_attr_sensitivity_group1 = np.mean(attribution_sensitivities_group1)
         std_attr_sensitivity_group1 = np.std(attribution_sensitivities_group1)
@@ -1077,28 +1111,28 @@ class TestStatisticBackprop:
         max_attr_sensitivity_group2 = np.max(attribution_sensitivities_group2)
 
         results = {
-            "test_stat_sensitivities": test_stat_sensitivities,
-            "p_value_sensitivities": p_value_sensitivities,
-            "attribution_sensitivities_group1": attribution_sensitivities_group1,
-            "attribution_sensitivities_group2": attribution_sensitivities_group2,
-            "mean_test_stat_sensitivity": float(mean_test_stat_sensitivity),
-            "std_test_stat_sensitivity": float(std_test_stat_sensitivity),
-            "max_test_stat_sensitivity": float(max_test_stat_sensitivity),
-            "mean_p_value_sensitivity": float(mean_p_value_sensitivity),
-            "std_p_value_sensitivity": float(std_p_value_sensitivity),
-            "max_p_value_sensitivity": float(max_p_value_sensitivity),
-            "mean_attr_sensitivity_group1": float(mean_attr_sensitivity_group1),
-            "std_attr_sensitivity_group1": float(std_attr_sensitivity_group1),
-            "max_attr_sensitivity_group1": float(max_attr_sensitivity_group1),
-            "mean_attr_sensitivity_group2": float(mean_attr_sensitivity_group2),
-            "std_attr_sensitivity_group2": float(std_attr_sensitivity_group2),
-            "max_attr_sensitivity_group2": float(max_attr_sensitivity_group2),
-            "n_samples": n_samples,
-            "lower_bound": lower_bound,
-            "upper_bound": upper_bound,
-            "norm_ord": norm_ord,
-            "original_test_stat": float(original_test_stat),
-            "original_p_value": float(original_p_value),
+            'test_stat_values': test_stat_values,
+            'p_value_values': p_value_values,
+            'attribution_sensitivities_group1': attribution_sensitivities_group1,
+            'attribution_sensitivities_group2': attribution_sensitivities_group2,
+            'test_stat_robustness_coef': float(test_stat_robustness_coef),
+            'p_value_robustness_coef': float(p_value_robustness_coef),
+            'test_stat_mean': float(test_stat_mean),
+            'test_stat_std': float(test_stat_std),
+            'p_value_mean': float(p_value_mean),
+            'p_value_std': float(p_value_std),
+            'mean_attr_sensitivity_group1': float(mean_attr_sensitivity_group1),
+            'std_attr_sensitivity_group1': float(std_attr_sensitivity_group1),
+            'max_attr_sensitivity_group1': float(max_attr_sensitivity_group1),
+            'mean_attr_sensitivity_group2': float(mean_attr_sensitivity_group2),
+            'std_attr_sensitivity_group2': float(std_attr_sensitivity_group2),
+            'max_attr_sensitivity_group2': float(max_attr_sensitivity_group2),
+            'n_samples': n_samples,
+            'lower_bound': lower_bound,
+            'upper_bound': upper_bound,
+            'norm_ord': norm_ord,
+            'original_test_stat': float(original_test_stat),
+            'original_p_value': float(original_p_value)
         }
 
         return results

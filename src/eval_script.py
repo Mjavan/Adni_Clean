@@ -26,15 +26,14 @@ from src.vis2samtestdr import TestStatisticBackprop
 base_args = {
     'annot_path': '/sc/projects/sci-lippert/chair/adni_t1_mprage/T1_3T_coronal_slice/T1_3T_coronal_mni_linear_hippo_resolution256/group_by_hippocampus/adni_T1_3T_linear_annotation.csv',
     'sav_gr_np': False,
+    'sav_embed_np': False,
     'corrupted': False,
     'deg': 'None',
     'ckp': 'fnt',
     'img_path': '/sc/projects/sci-lippert/chair/adni_t1_mprage/T1_3T_coronal_slice/T1_3T_coronal_mni_linear_hippo_resolution256/group_by_hippocampus',
     'n': 100, 'm': 100, 'bs': 10,
-    'dst': 'faithfulness_eval',
     'idx': 8,
     'random_state': 42,
-    'model_path': 'adni_results/ckps/model_finetun_last_10_False.pt',
     'target_layer': '0.7.2.conv3',
     # Faithfulness evaluation parameters
     'n_superpixels': 10,
@@ -42,6 +41,10 @@ base_args = {
     'circle_radius': 20,
     'circle_center_offset': -20,
     'circle_grey_value': 128,
+    # Robustness evaluation parameters
+    'n_perturbations': 100,
+    'perturbation_min': -1e-4,
+    'perturbation_max': 1e-4,
     # LRP-specific parameters (optional, with defaults)
     'lrp_composite': 'epsilon_plus_flat',
     'lrp_epsilon': 1e-6,
@@ -57,7 +60,7 @@ if __name__ == "__main__":
         '--methods',
         nargs='+',
         default=["cam", "cam++", "lcam", "lrp"],
-        choices=["cam", "cam++", "lcam", "lrp"],
+        choices=["lrp"],
         help='Explainability methods to evaluate (default: cam cam++ lcam lrp)'
     )
     parser.add_argument(
@@ -79,6 +82,9 @@ if __name__ == "__main__":
     if EVAL_TYPE == 'faithfulness':
         # Dictionary to store results
         all_results = {}
+
+        base_args["model_path"] = 'adni_results/ckps/model_finetun_best_16_True.pt'
+        base_args["dst"] = 'faithfulness_eval'
 
         # Run for each method
         for method in METHODS:
@@ -111,6 +117,9 @@ if __name__ == "__main__":
     elif EVAL_TYPE == 'sensitivity':
         sensitivity_results = {}
 
+        base_args["model_path"] = 'adni_results/ckps/model_finetun_best_11_False.pt'
+        base_args["dst"] = 'test'
+
         # Run for each method
         for method in METHODS:
             print(f"\n{'='*60}")
@@ -126,7 +135,9 @@ if __name__ == "__main__":
             # Run experiment
             experiment = TestStatisticBackprop(args)
             group0_attr, group1_attr = experiment.run()
-            results = experiment.max_sensitivity_evaluation(10, -0.1, 0.1)
+            results = experiment.max_sensitivity_evaluation(args.n_perturbations,
+                                                            args.perturbation_min,
+                                                            args.perturbation_max)
 
             # Store results
             sensitivity_results[method] = results

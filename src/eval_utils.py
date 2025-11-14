@@ -301,13 +301,11 @@ def plot_max_sensitivity_results(sensitivity_results_dict):
     methods = list(sensitivity_results_dict.keys())
     n_methods = len(methods)
 
-    # Extract data - average across all methods for test stat and p-value
-    # (they should be similar since they measure the same statistical test)
+    # Extract robustness coefficients (std/mean) for test stat and p-value
+    # (should be same across methods as they measure the same statistical test)
     first_method = methods[0]
-    test_stat_mean_overall = sensitivity_results_dict[first_method]['mean_test_stat_sensitivity']
-    test_stat_max_overall = sensitivity_results_dict[first_method]['max_test_stat_sensitivity']
-    pvalue_mean_overall = sensitivity_results_dict[first_method]['mean_p_value_sensitivity']
-    pvalue_max_overall = sensitivity_results_dict[first_method]['max_p_value_sensitivity']
+    test_stat_robustness = sensitivity_results_dict[first_method]['test_stat_robustness_coef']
+    p_value_robustness = sensitivity_results_dict[first_method]['p_value_robustness_coef']
 
     # Attribution sensitivity per method
     attr_g1_mean = [sensitivity_results_dict[m]['mean_attr_sensitivity_group1'] for m in methods]
@@ -323,30 +321,22 @@ def plot_max_sensitivity_results(sensitivity_results_dict):
     x = np.arange(n_methods)
     width = 0.35
 
-    # Plot 1: Test Statistic (overall, not per method)
+    # Plot 1: Test Statistic Robustness Coefficient (std/mean)
     ax = axes[0]
-    metrics = ['Avg', 'Max']
-    values = [test_stat_mean_overall, test_stat_max_overall]
-    colors = ['orange', 'red']
-    bars = ax.bar(range(len(metrics)), values, color=colors, alpha=0.8)
-    ax.set_ylabel('Test Statistic Sensitivity', fontsize=12)
-    ax.set_title('Test Statistic Sensitivity', fontsize=14, fontweight='bold')
-    ax.set_xticks(range(len(metrics)))
-    ax.set_xticklabels(metrics)
-    ax.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+    bars = ax.bar(0, test_stat_robustness, color='steelblue', alpha=0.8, width=0.5)
+    ax.set_ylabel('Robustness Coefficient (std/mean)', fontsize=12)
+    ax.set_title('Test Statistic Robustness', fontsize=14, fontweight='bold')
+    ax.set_xticks([0])
+    ax.set_xticklabels(['Test Stat'])
     ax.grid(True, alpha=0.3, axis='y')
 
-    # Plot 2: P-value (overall, not per method)
+    # Plot 2: P-value Robustness Coefficient (std/mean)
     ax = axes[1]
-    metrics = ['Avg', 'Max']
-    values = [pvalue_mean_overall, pvalue_max_overall]
-    colors = ['orange', 'red']
-    bars = ax.bar(range(len(metrics)), values, color=colors, alpha=0.8)
-    ax.set_ylabel('P-value Sensitivity', fontsize=12)
-    ax.set_title('P-value Sensitivity', fontsize=14, fontweight='bold')
-    ax.set_xticks(range(len(metrics)))
-    ax.set_xticklabels(metrics)
-    ax.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+    bars = ax.bar(0, p_value_robustness, color='steelblue', alpha=0.8, width=0.5)
+    ax.set_ylabel('Robustness Coefficient (std/mean)', fontsize=12)
+    ax.set_title('P-value Robustness', fontsize=14, fontweight='bold')
+    ax.set_xticks([0])
+    ax.set_xticklabels(['P-value'])
     ax.grid(True, alpha=0.3, axis='y')
 
     # Plot 3: Attribution Group 1
@@ -398,19 +388,26 @@ def print_max_sensitivity_table(sensitivity_results_dict):
     print("\n" + "=" * 90)
     print("MAX-SENSITIVITY EVALUATION")
     print("=" * 90)
-    print(f"{'Method':<12} {'Test Stat':<18} {'P-value':<18} {'Attr G1':<18} {'Attr G2':<18}")
-    print(f"{'':12} {'(Avg/Max)':<18} {'(Avg/Max)':<18} {'(Avg/Max)':<18} {'(Avg/Max)':<18}")
+
+    # Print robustness coefficients (same across all methods)
+    first_method = list(sensitivity_results_dict.keys())[0]
+    res_first = sensitivity_results_dict[first_method]
+    print(f"Test Statistic Robustness Coef (std/mean): {res_first['test_stat_robustness_coef']:.4f}")
+    print(f"P-value Robustness Coef (std/mean):        {res_first['p_value_robustness_coef']:.4f}")
+    print("-" * 90)
+
+    # Print attribution sensitivities per method
+    print(f"{'Method':<12} {'Attr G1':<25} {'Attr G2':<25}")
+    print(f"{'':12} {'(Avg/Max)':<25} {'(Avg/Max)':<25}")
     print("-" * 90)
 
     for method in sensitivity_results_dict.keys():
         res = sensitivity_results_dict[method]
 
         print(f"{method.upper():<12} "
-              f"{res['mean_test_stat_sensitivity']:.2e}/{res['max_test_stat_sensitivity']:.2e}      "
-              f"{res['mean_p_value_sensitivity']:.2e}/{res['max_p_value_sensitivity']:.2e}      "
-              f"{res['mean_attr_sensitivity_group1']:.2e}/{res['max_attr_sensitivity_group1']:.2e}      "
-              f"{res['mean_attr_sensitivity_group2']:.2e}/{res['max_attr_sensitivity_group2']:.2e}")
+              f"{res['mean_attr_sensitivity_group1']:.4f}/{res['max_attr_sensitivity_group1']:.4f}             "
+              f"{res['mean_attr_sensitivity_group2']:.4f}/{res['max_attr_sensitivity_group2']:.4f}")
 
     print("-" * 90)
-    print("Note: Lower sensitivity = more robust explanations")
+    print("Note: Lower robustness coefficient = more stable; Lower attribution sensitivity = more robust")
     print("=" * 90 + "\n")

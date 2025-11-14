@@ -116,7 +116,7 @@ class LRPExplainer:
         elif self.composite_type == "epsilon_plus":
             composite = EpsilonPlus(epsilon=self.lrp_epsilon, canonizers=canonizers)
         elif self.composite_type == "epsilon_plus_flat":
-            print(f"epsilon: {self.lrp_epsilon}")
+            #print(f"epsilon: {self.lrp_epsilon}")
             composite = EpsilonPlusFlat(epsilon=self.lrp_epsilon, canonizers=canonizers)
         elif self.composite_type == "epsilon_alpha2beta1":
             composite = EpsilonAlpha2Beta1(epsilon=self.lrp_epsilon, canonizers=canonizers)
