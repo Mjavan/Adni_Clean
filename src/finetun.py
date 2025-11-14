@@ -85,6 +85,8 @@ def finetune(num_epochs=10, batch_size=32, args=None):
     #print('#################################')
     #print(f'last_block:{last_block}')
     #print('#################################')
+    last_conv3 = last_block.conv3
+    last_bn3   = last_block.bn3
 
 
 
@@ -121,6 +123,26 @@ def finetune(num_epochs=10, batch_size=32, args=None):
             {"params": last_block.parameters(),   "lr": 1e-4, "weight_decay": 1e-4},  # smaller LR for convs
             ]
         opt = torch.optim.AdamW(param_groups)
+
+    elif args.freez=='lastconv':
+        print('All layers were freezed except conv3+bn3 in the last block and the linear layer!')
+        # 1. freeze encoder
+        freeze_all(encoder)
+
+        # 2. unfreeze conv3 and bn3 in last block
+        for p in last_conv3.parameters():
+            p.requires_grad = True
+        for p in last_bn3.parameters():
+            p.requires_grad = True
+
+        # 3. optimizer over just those + head
+        param_groups = [
+            {"params": model.linear.parameters(),   "lr": 1e-3, "weight_decay": 1e-4},
+            {"params": last_conv3.parameters(),     "lr": 1e-4, "weight_decay": 1e-4},
+            {"params": last_bn3.parameters(),       "lr": 1e-4, "weight_decay": 1e-4},
+        ]
+        opt = torch.optim.AdamW(param_groups)
+
 
     # check list of trainable paameters
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -200,16 +222,16 @@ def finetune(num_epochs=10, batch_size=32, args=None):
 
 # here we can load test set and evaluate model on it
 parser = argparse.ArgumentParser(description='Fine tuning pre-trained model on datasets!')
-parser.add_argument('--exp', type=int, default= 16, help='Experiment number for fine-tuning')
+parser.add_argument('--exp', type=int, default= 18, help='Experiment number for fine-tuning')
 parser.add_argument('--pre', type=str, default= 'sup', help='Type of pre-trained model: sup or selsup')
-parser.add_argument('--corrupted', type=str, default=True, help='Use corrupted images for group 1')
-parser.add_argument('--freez', type=str, default='lastblk',choices=('all','none','lastblk'), help='If we want to freeze all layers except the linear layer on top')
-parser.add_argument('--deg', type=str, default='circ', choices=('zer32','circ'), help='Degree of corruption: 4 or 8 or None, if we do not use corrupted images')      
+parser.add_argument('--corrupted', type=str, default=False, help='Use corrupted images for group 1')
+parser.add_argument('--freez', type=str, default='lastconv',choices=('all','none','lastblk','lastconv'), help='If we want to freeze all layers except the linear layer on top')
+parser.add_argument('--deg', type=str, default=None, choices=('zer32','circ'), help='Degree of corruption: 4 or 8 or None, if we do not use corrupted images')      
 
 if __name__=="__main__":
     
     args = parser.parse_args()
-    finetune(num_epochs=10, batch_size=32, args=args)
+    finetune(num_epochs=30, batch_size=32, args=args)
 
 
 
