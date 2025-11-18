@@ -97,6 +97,9 @@ class GradCAM(ProbBase):
         # ReLU or abs
         cam = F.relu(cam) if self.relu else cam  # .abs()
 
+        #cam_pos = torch.clamp(cam, min=0.0) # Ensure non-negativity
+        #cam_neg = torch.clamp(cam, max=0.0) # keeps values < 0, sets others to 0
+
         # Upsample to input size
         cam = F.interpolate(cam, (self.image_size, self.image_size), mode="bilinear", align_corners=False)
         return cam
