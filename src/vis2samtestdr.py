@@ -359,7 +359,7 @@ class TestStatisticBackprop:
         # Create explainer based on method
         if self.args.expl == "cam":
             # print(f'{self.args.expl} method was called with encoder:{self.encoder}')
-            explainer = GradCAM(self.encoder, target_layer=self.args.target_layer, relu=True, device=self.device)
+            explainer = GradCAM(self.encoder, target_layer=self.args.target_layer, relu=False, device=self.device)
         elif self.args.expl == "cam++":
             print(f"cam++ method was called for visualisation.")
             print(f"###########################################")
@@ -470,6 +470,10 @@ class TestStatisticBackprop:
                 # Expand gradient to match batch size
                 grad_per_sample = grad_base.unsqueeze(0).expand(batch_embed.size(0), -1)
 
+                print("Group:", group_id)
+                print("Positive:", (grad_base > 0).float().mean().item())
+                print("Negative:", (grad_base < 0).float().mean().item())
+
                 # Backward pass for this batch only
                 explainer.model.zero_grad()
                 batch_embed.backward(gradient=grad_per_sample, retain_graph=False)
@@ -477,6 +481,8 @@ class TestStatisticBackprop:
                 # Generate attribution and move to CPU immediately
                 # attributions = explainer.generate(flip_sign=(group_id == 1)) -- THIS KILLS THE EVALS
                 attributions = explainer.generate()
+                # attributions multiply with sign => it corrects attributions from group2
+                attributions = attributions * sign
                 attributions_np = attributions.squeeze().cpu().detach().numpy()
                 attributions_list.append(attributions_np)
 
@@ -1140,7 +1146,7 @@ class TestStatisticBackprop:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Statistic Backpropagation")
-    parser.add_argument("--exp", type=str, default="cam-fnt10-check-uncor", help="Experiment name")
+    parser.add_argument("--exp", type=str, default="cam-fnt10-debug-rFalse3-uncor", help="Experiment name")
     parser.add_argument(
         "--annot_path",
         type=str,
