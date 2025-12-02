@@ -88,7 +88,7 @@ class TestStatisticBackprop:
         self.heatmap_dir = os.path.join(base, "heatmaps")
         self.embed_dir = os.path.join(base, "embeddings")
         self.param_dir = os.path.join(base, "params")
-        self.overlay_dir = os.path.join(base, "overlay")
+        self.overlay_dir = os.path.join(base, "overlay", "all")
         self.statistic_dir = os.path.join(base, "statistics")
         self.img_dir = os.path.join(base, "images")
 
@@ -127,7 +127,7 @@ class TestStatisticBackprop:
         if self.args.dst == "test":
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-            root_dir = "."
+            root_dir = ".."
             # test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
@@ -141,7 +141,7 @@ class TestStatisticBackprop:
         elif self.args.dst == "faithfulness_eval":
             print(f"Using test set for getting embeddings")
             # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-            root_dir = "."
+            root_dir = ".."
             # test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "False" / "None"
             test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "False" / "None"
             out_path = test_dir / "test_split.npz"
@@ -182,7 +182,7 @@ class TestStatisticBackprop:
             if self.args.deg == "bl-test":
                 print(f"Using corrupted test set for getting embeddings")
                 # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-                root_dir = "."
+                root_dir = ".."
                 test_dir = Path(root_dir) / "AdniGithub" / "adni_results" / "split" / "test" / "True"
                 out_path = test_dir / "test_split.npz"
                 with np.load(out_path) as f:
@@ -195,7 +195,7 @@ class TestStatisticBackprop:
             if self.args.deg == "zer-test":
                 print(f"Using corrupted test set for getting embeddings")
                 # root_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability"
-                root_dir = "."
+                root_dir = ".."
                 test_dir = Path(root_dir) / "adni_results" / "split" / "test" / "True"
                 out_path = test_dir / "zer32" / "test_split.npz"
                 print("images with patch size 32 corrupted are used")
@@ -239,7 +239,7 @@ class TestStatisticBackprop:
         if self.args.ckp == "simclr":
             print("Using self-supervised pre-trained model")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "self_supervised" / "simclr" / "simclr_ckpts"
             pre_exp = 2
@@ -259,7 +259,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt":
             print("Using fine-tuned model on two groups of data without corruption (False)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             # checkpoint_dir = root_dir / 'adni_results' / 'ckps' / 'model_finetun_last_2_False.pt'
             checkpoint_dir = os.path.join(root_dir, self.args.model_path)
@@ -278,7 +278,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt_bl":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "adni_results" / "ckps" / "model_finetun_last_7_True.pt"
             state_dict = torch.load(checkpoint_dir, map_location=self.device)
@@ -295,7 +295,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "fnt_zer":
             print("Using fine-tuned model on two groups of data with corruption (True)")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = os.path.join(root_dir, self.args.model_path)
             print(f"ckp_dir:{checkpoint_dir}")
@@ -312,7 +312,7 @@ class TestStatisticBackprop:
         elif self.args.ckp == "suppr":
             print("Using supervised pre-trained model without fine-tuning")
             # base_path = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub"
-            base_path = "."
+            base_path = ".."
             root_dir = Path(base_path)
             checkpoint_dir = root_dir / "adni_results" / "ckps" / "resnet50_ukb_age_predict_epoch13.pth"
             weights = torch.load(checkpoint_dir, map_location=self.device)
@@ -364,12 +364,12 @@ class TestStatisticBackprop:
             print(f"cam++ method was called for visualisation.")
             print(f"###########################################")
             explainer = GradCAMPlusPlus(
-                self.encoder, target_layer=self.args.target_layer, relu=True, device=self.device
+                self.encoder, target_layer=self.args.target_layer, relu=False, device=self.device
             )
         elif self.args.expl == "lcam":
             print(f"LayerCam method was called for visualisation.")
             print(f"###########################################")
-            explainer = LayerCAM(self.encoder, target_layer=self.args.target_layer, relu=True, device=self.device)
+            explainer = LayerCAM(self.encoder, target_layer=self.args.target_layer, relu=False, device=self.device)
         elif self.args.expl == "lrp":
             print(f"LRP method was called for visualisation using zennit library.")
             print(f"###########################################")
@@ -482,6 +482,7 @@ class TestStatisticBackprop:
                 # attributions = explainer.generate(flip_sign=(group_id == 1)) -- THIS KILLS THE EVALS
                 attributions = explainer.generate()
                 # attributions multiply with sign => it corrects attributions from group2
+                # It should be done for methods like CAM, CAM++ and LayerCAM
                 attributions = attributions * sign
                 attributions_np = attributions.squeeze().cpu().detach().numpy()
                 attributions_list.append(attributions_np)
@@ -1146,7 +1147,7 @@ class TestStatisticBackprop:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Statistic Backpropagation")
-    parser.add_argument("--exp", type=str, default="cam-fnt10-debug-rFalse3-uncor", help="Experiment name")
+    parser.add_argument("--exp", type=str, default="cam++-fnt10-rFalse-rawcam-aton", help="Experiment name")
     parser.add_argument(
         "--annot_path",
         type=str,
@@ -1165,7 +1166,7 @@ if __name__ == "__main__":
         help="If we use random model or checkpoints",
     )
     parser.add_argument(
-        "--expl", type=str, default="cam", help="Explainability method", choices=["cam", "ig", "cam++", "lcam", "lrp"]
+        "--expl", type=str, default="cam++", help="Explainability method", choices=["cam", "ig", "cam++", "lcam", "lrp"]
     )
     parser.add_argument(
         "--img_path",
