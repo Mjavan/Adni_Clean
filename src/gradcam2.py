@@ -136,8 +136,10 @@ class GradCAMPlusPlus(ProbBase):
         eps = 1e-8
         denom = 2.0 * g2 + (sumA * g3) + eps
         alpha = g2 / denom
+        
+        g = F.relu(g) if self.relu else g # we use this command when we do not want to apply relu
 
-        weights = (alpha * F.relu(g)).sum(dim=(2, 3), keepdim=True)  # (B,C,1,1)
+        weights = (alpha * g).sum(dim=(2, 3), keepdim=True)  # (B,C,1,1)
 
         cam = (weights * A).sum(dim=1, keepdim=True)  # (B,1,H,W)
 
@@ -145,12 +147,9 @@ class GradCAMPlusPlus(ProbBase):
         if flip_sign:
             cam = -cam
 
-        cam = F.relu(cam)
+        cam = F.relu(cam) if self.relu else cam # .abs()
 
         cam = F.interpolate(cam, (self.image_size, self.image_size), mode="bilinear", align_corners=False)
-
-        cam_neg = F.relu(-cam)
-        cam_neg = F.interpolate(cam_neg, (self.image_size, self.image_size), mode="bilinear", align_corners=False)
         return cam
 
 
@@ -236,12 +235,16 @@ class LayerCAM(ProbBase):
         A = self.get_conv_outputs(self.outputs_forward, self.target_layer)  # (B,C,H,W)
         g = self.get_conv_outputs(self.outputs_backward, self.target_layer)  # (B,C,H,W)
 
-        cam = (F.relu(g) * A).sum(dim=1, keepdim=True)  # (B,1,H,W)
+        print(f'relu in layercam: {self.relu}')
+        
+        g = F.relu(g) if self.relu else g
+        cam = (g * A).sum(dim=1, keepdim=True)  # (B,1,H,W)
 
         # Flip sign if requested (for group 1 in MMD test statistic)
         if flip_sign:
             cam = -cam
 
-        cam = F.relu(cam) if self.relu else cam.abs()
+        #cam = F.relu(cam) if self.relu else cam # .abs()
+        # cam_pos = torch.clamp(cam, min=0.0) # instead of applying relu, lets take pos grads
         cam = F.interpolate(cam, (self.image_size, self.image_size), mode="bilinear", align_corners=False)
         return cam
