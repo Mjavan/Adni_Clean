@@ -76,7 +76,7 @@ class AdniMRIDatasetFull(Dataset):
     
 
 
-def save_severity_groups(dataset, out_dir="../adni_results/images"):
+def save_severity_groups(dataset, out_dir=None):
     os.makedirs(out_dir, exist_ok=True)
 
     CN, MCI, AD = [], [], []
@@ -104,6 +104,6 @@ def save_severity_groups(dataset, out_dir="../adni_results/images"):
 if __name__ == "__main__":
     annotations_file = "./file_local.csv"
     dataset = AdniMRIDatasetFull(annotations_file)
-    out_dir = "/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub/adni_results/images"
-    save_severity_groups(dataset)
+    out_dir = "./adni_results/images"
+    save_severity_groups(dataset, out_dir)
 
