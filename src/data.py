@@ -9,6 +9,7 @@ from torchvision.models import resnet50, ResNet50_Weights
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 import nibabel as nib
+from skimage.transform import resize
 
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -65,31 +66,54 @@ class AdniMRIDatasetFull(Dataset):
             img_path = os.path.join(self.img_dir, rel_path)
         else:
             img_path = rel_path
+        
+        # load 3D MRI
+        image = nib.load(img_path).get_fdata().astype(np.float32)
+        # reorder axes: (coronal, sagittal, axial)
+        # Middle coronal slice
+        y_mid = image.shape[1] // 2
+        slice_data = image[:, y_mid, :]
 
-        image = nib.load(img_path).get_fdata().astype(np.uint8)
-        image = image.transpose(2, 0, 1)
-
+        # Rotate to match typical radiology visual orientation
+        slice_data = np.rot90(slice_data)
+        # optional: normalize 0–1 (similar to matplotlib auto-scaling)
+        slice_data = (slice_data - slice_data.min()) / (slice_data.max() - slice_data.min() + 1e-8)
+        
+        # Resize to 256x256
+        slice_data = resize(slice_data, (256, 256), preserve_range=True, anti_aliasing=True)
         if self.transform:
-            image = self.transform(image)
+            slice_data = self.transform(slice_data)
 
-        return image, group
+        slice_data = slice_data[np.newaxis, ...] # add channel dimension =>(1,H,W)
+
+        return slice_data, group
     
 
 
-def save_severity_groups(dataset, out_dir=None):
+
+def save_severity_groups(dataset, out_dir="../adni_results/images", max_per_class=1000):
     os.makedirs(out_dir, exist_ok=True)
 
     CN, MCI, AD = [], [], []
 
     print(f'directory for saving: {out_dir}')
 
+    i = 0
+
     for img, label in dataset:
+        i += 1
+        print(f'i:{i}')
         if label == "CN":
             CN.append(img)
         elif label == "MCI":
             MCI.append(img)
         elif label == "AD":
             AD.append(img)
+
+        if (len(CN) >= max_per_class and
+            len(MCI) >= max_per_class and
+            len(AD) >= max_per_class):
+            break
 
     if CN:
         np.save(os.path.join(out_dir, "CN.npy"), np.stack(CN))
@@ -104,6 +128,6 @@ def save_severity_groups(dataset, out_dir=None):
 if __name__ == "__main__":
     annotations_file = "./file_local.csv"
     dataset = AdniMRIDatasetFull(annotations_file)
-    out_dir = "./adni_results/images"
+    out_dir = "../"
     save_severity_groups(dataset, out_dir)
 
