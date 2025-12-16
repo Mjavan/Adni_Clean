@@ -69,10 +69,83 @@ class NpyImageDataset(Dataset):
 
         y = torch.tensor(self.y[idx], dtype=torch.long)
         return x, y
+# This function hanels both uint8 images and float images 
+# Only robust_float_norm is added to hanle float images properly    
+class NpyImageDataset2(Dataset):
+    def __init__(
+        self,
+        X_np: np.ndarray,
+        y_np: np.ndarray,
+        to_three_channels: bool = True,
+        imagenet_norm: bool = True,
+        robust_float_norm: bool = True   # 🔹 NEW
+    ):
+        """
+        X_np: (N,H,W) or (N,1,H,W)
+              dtype can be uint8 or float
+        y_np: (N,) labels
+        """
+        self.X = X_np
+        self.y = y_np.astype(np.int64)
 
-def make_loaders(X_train, y_train, X_val, y_val, batch_size=32, num_workers=4):
-    train_ds = NpyImageDataset(X_train, y_train, to_three_channels=True, imagenet_norm=True)
-    val_ds   = NpyImageDataset(X_val,   y_val,   to_three_channels=True, imagenet_norm=True)
+        #print(f'NpyImageDataset2 was used!')
+
+        #print(f'type X: {self.X.dtype}')
+
+        self.to_three = to_three_channels
+        self.imagenet_norm = imagenet_norm
+        self.robust_float_norm = robust_float_norm
+        #print(f'float_norm:{self.robust_float_norm}')
+
+        if imagenet_norm:
+            self.mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+            self.std  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+
+    def __len__(self):
+        return len(self.y)
+
+    def _scale_to_01_float(self, x: torch.Tensor):
+        """Robust scaling for float MRI images"""
+        lo = torch.quantile(x, 0.01)
+        hi = torch.quantile(x, 0.99)
+        x = torch.clamp(x, lo, hi)
+        return (x - lo) / (hi - lo + 1e-8)
+
+    def __getitem__(self, idx):
+        x_np = self.X[idx]
+        x = torch.from_numpy(x_np).float()   # (H,W) or (1,H,W)
+        #print(f'type x: {x.dtype}')
+        
+        if x.ndim == 2:
+            x = x.unsqueeze(0)               # -> (1,H,W)
+
+        # 🔹 Correct intensity handling
+        if x_np.dtype == np.uint8:
+            # Old pipeline (safe)
+            x = x / 255.0
+        else:
+            # New pipeline (float MRI)
+            if self.robust_float_norm:
+                #print(f'robust float normalization is applied')
+                x = self._scale_to_01_float(x)
+
+        # Channel handling
+        if self.to_three and x.shape[0] == 1:
+            x = x.repeat(3, 1, 1)            # -> (3,H,W)
+
+        # ImageNet normalization (for ResNet)
+        if self.imagenet_norm:
+            x = (x - self.mean) / self.std
+
+        y = torch.tensor(self.y[idx], dtype=torch.long)
+        return x, y
+
+def make_loaders(X_train, y_train, X_val, y_val, batch_size=32, num_workers=4,robust_float_norm=False):
+    # robust_float_norm is added to hanle float images properly
+    # robust_float_norm is passed to NpyImageDataset2 class
+    # robust_float_norm is set to True when float images are used
+    train_ds = NpyImageDataset2(X_train, y_train, to_three_channels=True, imagenet_norm=True, robust_float_norm=robust_float_norm)
+    val_ds   = NpyImageDataset2(X_val,   y_val,   to_three_channels=True, imagenet_norm=True, robust_float_norm=robust_float_norm)
 
     train_loader = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,
@@ -138,14 +211,24 @@ def split_data(args):
     # we should replace them with corrupted images for group 1 if we want to use corrupted images
     # gives always label 0 to group 0 and label 1 to group 1 
     if not args.corrupted:
-        gr0_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','images', f'gr0_4591.npy')
-        gr1_dir = os.path.join(args.root_dir,'AdniGithub','adni_results','images', f'gr1_4592.npy')
-        gr0 = np.load(gr0_dir)
-        gr1 = np.load(gr1_dir)
-        print(f'len gr0:{gr0.shape}', f'len gr1:{gr1.shape}')
-        # make two groups of data from the same length 
-        min_len = min(len(gr0), len(gr1))
-        gr0, gr1 = gr0[:min_len], gr1[:min_len]
+        if args.task=='hippo':
+            gr0_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','images', f'gr0_4591.npy')
+            gr1_dir = os.path.join(args.root_dir,'AdniGithub','adni_results','images', f'gr1_4592.npy')
+            gr0 = np.load(gr0_dir)
+            gr1 = np.load(gr1_dir)
+            print(f'len gr0:{gr0.shape}', f'len gr1:{gr1.shape}')
+            # make two groups of data from the same length 
+            min_len = min(len(gr0), len(gr1))
+            gr0, gr1 = gr0[:min_len], gr1[:min_len]
+        elif args.task=='CN_AD':
+            gr0_dir = os.path.join(args.root_dir, 'AdniGithub','adni_results','images','float', 'CN.npy')
+            gr1_dir = os.path.join(args.root_dir,'AdniGithub','adni_results','images','float','AD.npy')
+            gr0 = np.load(gr0_dir)
+            gr1 = np.load(gr1_dir)
+            print(f'len gr0:{gr0.shape}', f'len gr1:{gr1.shape}')
+            # make two groups of data from the same length 
+            min_len = min(len(gr0), len(gr1))
+            gr0, gr1 = gr0[:min_len], gr1[:min_len]
 
     elif args.corrupted:
         if args.deg=='bl32':
@@ -191,7 +274,12 @@ def split_data(args):
 
     # Now we save test_set for creating heat-maps and test-statistic 
     # Build the path
-    test_dir = Path(args.root_dir) / "AdniGithub" /"adni_results" /"split"/ "test" / str(args.corrupted) / str(args.deg)
+    if args.task=='hippo':
+        # Handel hippocampal atrophy task
+        test_dir = Path(args.root_dir) / "AdniGithub" /"adni_results" /"split"/ "test" / str(args.corrupted) / str(args.deg) 
+    else:
+        # Handel CN_AD task
+        test_dir = Path(args.root_dir) / "AdniGithub" /"adni_results" /"split"/ "test" / str(args.corrupted) / str(args.deg) / args.task / 'float'
     test_dir.mkdir(parents=True, exist_ok=True)  # create folders if missing
     # Save both arrays into a single compressed file
     out_path = test_dir / "test_split.npz"
@@ -200,7 +288,12 @@ def split_data(args):
 
 
     # Making directory for train nad val sets
-    train_dir = Path(args.root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted) / str(args.deg)
+    if args.task=='hippo':
+        # Handel hippocampal atrophy task
+        train_dir = Path(args.root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted) / str(args.deg)
+    else:
+        # Handel CN_AD task, other tasks like MCI_AD can be added here
+        train_dir = Path(args.root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted) / str(args.deg) / args.task / 'float'
     train_dir.mkdir(parents=True, exist_ok=True)  # create folders if missing
     # Save both arrays into a sigle cpmpressed file 
     train_path = train_dir / "train_split.npz"
@@ -218,24 +311,25 @@ parser = argparse.ArgumentParser(description='Preparing datasets for finetuning!
 parser.add_argument('--root_dir', type=str, default= '/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability')
 parser.add_argument('--corrupted', type=str, default=True, help='Use corrupted images for group 1')
 parser.add_argument('--deg', type=str, default='circ', help='Degree of corruption: 4 or 8', choices=('bl32', 'zer32','circ','None'))
+parser.add_argument('--task', type=str, default='CN_AD', help='which task we want to use:hippo, CN_AD,MCI_AD', choices=('CN_AD','hippo','MCI_AD'))
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    split_data(args)
-    print('Data splitting is done!')
+    #split_data(args)
+    #print('Data splitting is done!')
 
-    outdir = Path('/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub/adni_results/split/train/False')
+    outdir = Path('/sc/home/masoumeh.javanbakhat/netstore-old/Baysian/3D/Explainability/AdniGithub/adni_results/split/train/False/None/CN_AD/float')
 
     data = np.load(outdir / "train_val_splits.npz")
     X_train = data["X_train"]; y_train = data["y_train"]
     X_val   = data["X_val"];   y_val   = data["y_val"]
-    train_loader, val_loader = make_loaders(X_train, y_train, X_val, y_val, batch_size=32, num_workers=4)
+    train_loader, val_loader = make_loaders(X_train, y_train, X_val, y_val, batch_size=32, num_workers=4, robust_float_norm=True)
 
-    #train_batch0 = next(iter(train_loader))
+    train_batch0 = next(iter(train_loader))
 
-    #print(len(train_batch0))
+    print(len(train_batch0))
 
-    #val_batch0 = next(iter(val_loader))
+    val_batch0 = next(iter(val_loader))
 
     #print(len(val_batch0))
 
