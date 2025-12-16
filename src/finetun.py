@@ -33,14 +33,26 @@ def finetune(num_epochs=10, batch_size=32, args=None):
         print(f'data corrupted:{args.corrupted}, degree:{args.deg} is loaded!')
     else:
         print('upload non-corrupted images')
-        train_dir = Path(root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted)/ str(args.deg)
+        if args.task=='hippo':
+            # this is for hippocampus volume stratification task
+            train_dir = Path(root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted)/ str(args.deg)
+        else:
+            # this is for CN-AD or MCI-AD tasks
+            train_dir = Path(root_dir) / "AdniGithub"/ "adni_results" / "split" / "train" / str(args.corrupted)/ str(args.deg) / str(args.task) / 'float'
     loss_dir = root_dir / "AdniGithub"/ "adni_results" / "loss"
     data = np.load(train_dir / "train_val_splits.npz")
     X_train = data["X_train"]; y_train = data["y_train"]
     X_val   = data["X_val"];   y_val   = data["y_val"]
 
     # Making dataloaders
-    train_loader, val_loader = make_loaders(X_train, y_train, X_val, y_val, batch_size=32, num_workers=4)
+    if args.task=='hippo':
+        # this is for hippocampus volume stratification task, no rubust float needed 
+        train_loader, val_loader = make_loaders(X_train, y_train, X_val, y_val, batch_size=32, num_workers=4)
+    else:
+        # this is for CN-AD or MCI-AD tasks, we need robust float
+        # this handels the float images in a robust way
+        print('Using robust float loader for CN-AD or MCI-AD task!')
+        train_loader, val_loader = make_loaders(X_train, y_train, X_val, y_val, batch_size=32, num_workers=4, robust_float_norm=True)
 
 
     # path where I saved pre-trained model on Diabetic Rethinopathy dataset => self-supervised SimCLR
@@ -222,16 +234,16 @@ def finetune(num_epochs=10, batch_size=32, args=None):
 
 # here we can load test set and evaluate model on it
 parser = argparse.ArgumentParser(description='Fine tuning pre-trained model on datasets!')
-parser.add_argument('--exp', type=int, default= 18, help='Experiment number for fine-tuning')
+parser.add_argument('--exp', type=int, default= 24, help='Experiment number for fine-tuning')
 parser.add_argument('--pre', type=str, default= 'sup', help='Type of pre-trained model: sup or selsup')
 parser.add_argument('--corrupted', type=str, default=False, help='Use corrupted images for group 1')
-parser.add_argument('--freez', type=str, default='lastconv',choices=('all','none','lastblk','lastconv'), help='If we want to freeze all layers except the linear layer on top')
+parser.add_argument('--freez', type=str, default='all',choices=('all','none','lastblk','lastconv'), help='If we want to freeze all layers except the linear layer on top')
 parser.add_argument('--deg', type=str, default=None, choices=('zer32','circ'), help='Degree of corruption: 4 or 8 or None, if we do not use corrupted images')      
-
+parser.add_argument('--task', type=str, default='CN_AD', choices=('hippo','CN_AD', 'MCI_AD'), help='Set task for finetuning: based on stratification')
 if __name__=="__main__":
     
     args = parser.parse_args()
-    finetune(num_epochs=30, batch_size=32, args=args)
+    finetune(num_epochs=150, batch_size=32, args=args)
 
 
 
