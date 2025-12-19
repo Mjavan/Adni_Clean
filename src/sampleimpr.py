@@ -162,8 +162,8 @@ class SampleImportance:
         self.group_1 = self._convert_to_tensor(self.group_1_np)
         self.group_2 = self._convert_to_tensor(self.group_2_np)
 
-        self.healthy_loader = DataLoader(self.group_1, batch_size=self.args.bs, shuffle=False, drop_last=True)
-        self.unhealthy_loader = DataLoader(self.group_2, batch_size=self.args.bs, shuffle=False, drop_last=True)
+        self.healthy_loader = DataLoader(self.group_1, batch_size=self.args.bs, shuffle=False, drop_last=False)
+        self.unhealthy_loader = DataLoader(self.group_2, batch_size=self.args.bs, shuffle=False, drop_last=False)
 
         print(f"Loaded {len(self.group_1)} samples in group 1, {len(self.group_2)} samples in group 2")
 
@@ -186,7 +186,7 @@ class SampleImportance:
         # Select remaining samples
         remaining_data = tensor_data[indices]
         # Create a new DataLoader with the updated data
-        updated_loader = DataLoader(remaining_data, batch_size=self.args.bs, shuffle=False, drop_last=True)
+        updated_loader = DataLoader(remaining_data, batch_size=self.args.bs, shuffle=False, drop_last=False)
         return updated_loader
 
     def _get_orig_test_statistic(self):
